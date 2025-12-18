@@ -109,6 +109,9 @@ func (r *Raft) SetState(_ context.Context, state State) {
 }
 
 func (r *Raft) LogEntry(_ context.Context, index uint64) *LogEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	if uint64(len(r.log)) < index {
 		return nil
 	}
@@ -116,6 +119,9 @@ func (r *Raft) LogEntry(_ context.Context, index uint64) *LogEntry {
 }
 
 func (r *Raft) LastLogEntry(ctx context.Context) *LogEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	if len(r.log) < 1 {
 		return nil
 	}
@@ -204,9 +210,7 @@ func (r *Raft) getCommitIndex(_ context.Context) uint64 {
 }
 
 func (r *Raft) setCommitIndex(_ context.Context, commitIndex uint64) {
-	r.mu.Lock()
 	r.commitIndex = commitIndex
-	r.mu.Unlock()
 }
 
 func (r *Raft) getLastApplied(_ context.Context) uint64 {
@@ -216,9 +220,7 @@ func (r *Raft) getLastApplied(_ context.Context) uint64 {
 }
 
 func (r *Raft) setLastApplied(_ context.Context, lastApplied uint64) {
-	r.mu.Lock()
 	r.lastApplied = lastApplied
-	r.mu.Unlock()
 }
 
 func (r *Raft) appendLogEntries(ctx context.Context, l []*LogEntry) {
