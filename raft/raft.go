@@ -135,9 +135,6 @@ func (r *Raft) AppendLogEntries(ctx context.Context, l []*LogEntry, leaderCommit
 
 	// TODO: implement overwrite
 	r.persistent.AppendLogEntries(ctx, l)
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.appendLogEntries(ctx, l)
 
 	if leaderCommit > r.getCommitIndex(ctx) {
@@ -210,6 +207,8 @@ func (r *Raft) getCommitIndex(_ context.Context) uint64 {
 }
 
 func (r *Raft) setCommitIndex(_ context.Context, commitIndex uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.commitIndex = commitIndex
 }
 
@@ -220,6 +219,8 @@ func (r *Raft) getLastApplied(_ context.Context) uint64 {
 }
 
 func (r *Raft) setLastApplied(_ context.Context, lastApplied uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.lastApplied = lastApplied
 }
 
@@ -227,12 +228,16 @@ func (r *Raft) appendLogEntries(ctx context.Context, l []*LogEntry) {
 	for i, newLogEntry := range l {
 		currentLogEntry := r.LogEntry(ctx, newLogEntry.Index)
 		if currentLogEntry == nil {
+			r.mu.Lock()
 			r.log = append(r.log, l[i:]...)
+			r.mu.Unlock()
 			return
 		}
 
 		if currentLogEntry.Term != newLogEntry.Term {
+			r.mu.Lock()
 			r.log = append(r.log[:newLogEntry.Index-1], l[i:]...)
+			r.mu.Unlock()
 			return
 		}
 	}
