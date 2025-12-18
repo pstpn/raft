@@ -17,11 +17,16 @@ func NewGRPCHandler() *GRPCHandler {
 }
 
 func (g *GRPCHandler) AppendEntries(ctx context.Context, req *protos.AppendEntriesReq) (*protos.AppendEntriesResp, error) {
-	currentTerm, err := g.raft.CurrentTerm(ctx)
-	if err != nil {
-		return nil, err
-	}
+	currentTerm := g.raft.GetCurrentTerm(ctx)
 	if currentTerm > req.GetTerm() {
+		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
+	}
+
+	if currentTerm < req.GetTerm() {
+		g.raft.SetCurrentTerm(ctx, req.GetTerm())
+		g.raft.SetState(ctx, raft.Follower)
+	}
+	if g.raft.GetCurrentState(ctx) == raft.Leader {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
@@ -30,10 +35,7 @@ func (g *GRPCHandler) AppendEntries(ctx context.Context, req *protos.AppendEntri
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
-	err = g.raft.AppendLogEntries(ctx, logEntriesFromGRPC(req.GetEntries()), req.GetLeaderCommit())
-	if err != nil {
-		return nil, err
-	}
+	g.raft.AppendLogEntries(ctx, logEntriesFromGRPC(req.GetEntries()), req.GetLeaderCommit())
 
 	return &protos.AppendEntriesResp{
 		Term:    currentTerm,
