@@ -30,7 +30,7 @@ func (g *GRPCHandler) AppendEntries(ctx context.Context, req *protos.AppendEntri
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
-	prevLogEntry := g.raft.LogEntry(ctx, req.GetPrevLogIndex())
+	prevLogEntry := g.raft.GetLogEntry(ctx, req.GetPrevLogIndex())
 	if prevLogEntry == nil || prevLogEntry.Term != req.GetPrevLogTerm() {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
