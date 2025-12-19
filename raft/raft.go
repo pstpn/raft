@@ -2,10 +2,17 @@ package raft
 
 import (
 	"context"
-	"net"
+	"fmt"
+	"math/rand/v2"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+
+	"raft/config"
+	"raft/protos"
 )
 
 type State int8
@@ -14,19 +21,22 @@ const (
 	Follower State = iota
 	Candidate
 	Leader
+
+	minTimeout = 150 * time.Millisecond
+	maxTimeout = 300 * time.Millisecond
 )
 
 type LogEntry struct {
-	Index      uint64
-	Term       uint64
+	Index      int
+	Term       int
 	Data       []byte
 	AppendedAt uint64 // unix nano
 }
 
 // Persistent TODO: implement
 type Persistent interface {
-	GetCurrentTerm(ctx context.Context) uint64
-	SetCurrentTerm(ctx context.Context, term uint64)
+	GetCurrentTerm(ctx context.Context) int
+	SetCurrentTerm(ctx context.Context, term int)
 
 	GetVotedFor(ctx context.Context) string
 	SetVotedFor(ctx context.Context, candidateId string)
@@ -45,30 +55,41 @@ type Raft struct {
 	mu *sync.RWMutex
 
 	currentState State
-	commitIndex  uint64
-	lastApplied  uint64
+	commitIndex  int
+	lastApplied  int
 	log          []*LogEntry
+	heartbeatCh  chan struct{}
 
-	nodesIPs   []net.Addr
-	persistent Persistent
-	fsm        FSM
+	cfg                 *config.Raft
+	clusterNodesClients map[string]protos.RaftClient
+	persistent          Persistent
+	fsm                 FSM
 
 	// Only for leader
-	nextIndex  []uint64
-	matchIndex []uint64
+	nextIndex  []int
+	matchIndex []int
 }
 
-func NewRaft(ctx context.Context, fsm FSM, p Persistent, nodesIPs []net.Addr) (*Raft, error) {
-	lastApplied := uint64(0)
+func NewRaft(ctx context.Context, cfg *config.Raft, fsm FSM, p Persistent) (*Raft, error) {
+	lastApplied := 0
 	lastAppliedLogEntry := fsm.LastApplied(ctx)
 	if lastAppliedLogEntry != nil {
 		lastApplied = lastAppliedLogEntry.Index
 	}
 
-	commitIndex := uint64(0)
+	commitIndex := 0
 	logEntries := p.GetLogEntries(ctx)
 	if len(logEntries) > 0 {
 		commitIndex = logEntries[len(logEntries)-1].Index
+	}
+
+	clusterNodesClients := make(map[string]protos.RaftClient, len(cfg.ClusterNodesAddr))
+	for _, clusterNodeAddr := range cfg.ClusterNodesAddr {
+		client, err := grpc.NewClient(clusterNodeAddr)
+		if err != nil {
+			return nil, err
+		}
+		clusterNodesClients[clusterNodeAddr] = protos.NewRaftClient(client)
 	}
 
 	return &Raft{
@@ -78,21 +99,23 @@ func NewRaft(ctx context.Context, fsm FSM, p Persistent, nodesIPs []net.Addr) (*
 		commitIndex:  commitIndex,
 		lastApplied:  lastApplied,
 		log:          logEntries,
+		heartbeatCh:  make(chan struct{}, 1),
 
-		nodesIPs:   nodesIPs,
-		persistent: p,
-		fsm:        fsm,
+		cfg:                 cfg,
+		clusterNodesClients: clusterNodesClients,
+		persistent:          p,
+		fsm:                 fsm,
 
 		nextIndex:  nil,
 		matchIndex: nil,
 	}, nil
 }
 
-func (r *Raft) GetCurrentTerm(ctx context.Context) uint64 {
+func (r *Raft) GetCurrentTerm(ctx context.Context) int {
 	return r.persistent.GetCurrentTerm(ctx)
 }
 
-func (r *Raft) SetCurrentTerm(ctx context.Context, term uint64) {
+func (r *Raft) SetCurrentTerm(ctx context.Context, term int) {
 	r.persistent.SetCurrentTerm(ctx, term)
 }
 
@@ -108,7 +131,7 @@ func (r *Raft) SetState(_ context.Context, state State) {
 	r.mu.Unlock()
 }
 
-func (r *Raft) GetLogEntry(ctx context.Context, index uint64) *LogEntry {
+func (r *Raft) GetLogEntry(ctx context.Context, index int) *LogEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.getLogEntry(ctx, index)
@@ -120,7 +143,9 @@ func (r *Raft) GetLastLogEntry(ctx context.Context) *LogEntry {
 	return r.getLogEntry(ctx, r.getCommitIndex(ctx))
 }
 
-func (r *Raft) AppendLogEntries(ctx context.Context, l []*LogEntry, leaderCommit uint64) {
+func (r *Raft) AppendLogEntries(ctx context.Context, l []*LogEntry, leaderCommit int) {
+	defer r.nonblockingHeartbeat(ctx)
+
 	if len(l) < 1 {
 		return
 	}
@@ -138,6 +163,8 @@ func (r *Raft) AppendLogEntries(ctx context.Context, l []*LogEntry, leaderCommit
 }
 
 func (r *Raft) Start(ctx context.Context) error {
+	defer r.Shutdown()
+
 	gr, ctx := errgroup.WithContext(ctx)
 
 	gr.Go(func() error { return r.stateHandlerLoop(ctx) })
@@ -146,33 +173,63 @@ func (r *Raft) Start(ctx context.Context) error {
 	return gr.Wait()
 }
 
+func (r *Raft) Shutdown() {
+	// TODO: implement
+}
+
 func (r *Raft) stateHandlerLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			switch r.GetCurrentState(ctx) {
+			switch state := r.GetCurrentState(ctx); state {
 			case Follower:
 				r.followerLoop(ctx)
 			case Candidate:
 				r.candidateLoop(ctx)
 			case Leader:
 				r.leaderLoop(ctx)
+			default:
+				panic(fmt.Sprintf("undefined node state: %d", state))
 			}
 		}
 	}
 }
 
 func (r *Raft) followerLoop(ctx context.Context) {
+	heartbeatTimeout := randomTimeout()
+
 	for r.GetCurrentState(ctx) == Follower {
-		// TODO: implement
+		select {
+		case <-r.heartbeatCh:
+			heartbeatTimeout = randomTimeout()
+		case <-heartbeatTimeout:
+			r.SetState(ctx, Candidate)
+		default:
+		}
 	}
 }
 
 func (r *Raft) candidateLoop(ctx context.Context) {
+	currentTerm := r.GetCurrentTerm(ctx) + 1
+	voted, votesForElect := &atomic.Int64{}, r.quorumSize(ctx)
+	electionTimeout := randomTimeout()
+	r.sendVoteForMe(ctx, voted)
+
 	for r.GetCurrentState(ctx) == Candidate {
-		// TODO: implement
+		select {
+		case <-electionTimeout:
+			currentTerm++
+			electionTimeout = randomTimeout()
+			voted = &atomic.Int64{}
+			r.sendVoteForMe(ctx, voted)
+		default:
+			if voted.Load()+1 >= int64(votesForElect) {
+				r.SetCurrentTerm(ctx, currentTerm)
+				r.SetState(ctx, Leader)
+			}
+		}
 	}
 }
 
@@ -197,27 +254,38 @@ func (r *Raft) logApplierLoop(ctx context.Context) error {
 	}
 }
 
-func (r *Raft) getLogEntry(_ context.Context, index uint64) *LogEntry {
-	if uint64(len(r.log)) < index {
+func (r *Raft) getLogEntry(_ context.Context, index int) *LogEntry {
+	if len(r.log) < index {
 		return nil
 	}
 	return r.log[index-1]
 }
 
-func (r *Raft) getCommitIndex(_ context.Context) uint64 {
+func (r *Raft) getCommitIndex(_ context.Context) int {
 	return r.commitIndex
 }
 
-func (r *Raft) setCommitIndex(_ context.Context, commitIndex uint64) {
+func (r *Raft) setCommitIndex(_ context.Context, commitIndex int) {
 	r.commitIndex = commitIndex
 }
 
-func (r *Raft) getLastApplied(_ context.Context) uint64 {
+func (r *Raft) getLastApplied(_ context.Context) int {
 	return r.lastApplied
 }
 
-func (r *Raft) setLastApplied(_ context.Context, lastApplied uint64) {
+func (r *Raft) setLastApplied(_ context.Context, lastApplied int) {
 	r.lastApplied = lastApplied
+}
+
+func (r *Raft) nonblockingHeartbeat(_ context.Context) {
+	select {
+	case r.heartbeatCh <- struct{}{}:
+	default:
+	}
+}
+
+func (r *Raft) quorumSize(_ context.Context) int {
+	return len(r.clusterNodesClients)/2 + 1
 }
 
 func (r *Raft) appendLogEntries(ctx context.Context, l []*LogEntry) {
@@ -235,6 +303,32 @@ func (r *Raft) appendLogEntries(ctx context.Context, l []*LogEntry) {
 	}
 }
 
-func (r *Raft) applyLogEntries(ctx context.Context) {
+func (r *Raft) applyLogEntries(_ context.Context) {
 	// TODO: implement
+}
+
+func (r *Raft) sendVoteForMe(ctx context.Context, voted *atomic.Int64) {
+	for _, nodeClient := range r.clusterNodesClients {
+		go func() {
+			resp, err := nodeClient.RequestVote(ctx, &protos.RequestVoteReq{
+				Term:         0,
+				CandidateId:  "",
+				LastLogIndex: 0,
+				LastLogTerm:  0,
+			})
+			if err == nil && resp != nil {
+				if resp.GetVoteGranted() {
+					voted.Add(1)
+				}
+				if resp.GetTerm() > int64(r.GetCurrentTerm(ctx)) {
+					r.SetCurrentTerm(ctx, int(resp.GetTerm()))
+					r.SetState(ctx, Follower)
+				}
+			}
+		}()
+	}
+}
+
+func randomTimeout() <-chan time.Time {
+	return time.After(time.Duration(rand.Int64N(int64(maxTimeout-minTimeout))) + minTimeout)
 }

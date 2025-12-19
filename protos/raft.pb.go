@@ -24,11 +24,11 @@ const (
 type AppendEntriesReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Entries       []*Entry               `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
-	Term          uint64                 `protobuf:"varint,2,opt,name=term,proto3" json:"term,omitempty"`
+	Term          int64                  `protobuf:"varint,2,opt,name=term,proto3" json:"term,omitempty"`
 	LeaderId      string                 `protobuf:"bytes,3,opt,name=leaderId,proto3" json:"leaderId,omitempty"`
-	PrevLogIndex  uint64                 `protobuf:"varint,4,opt,name=prevLogIndex,proto3" json:"prevLogIndex,omitempty"`
-	PrevLogTerm   uint64                 `protobuf:"varint,5,opt,name=prevLogTerm,proto3" json:"prevLogTerm,omitempty"`
-	LeaderCommit  uint64                 `protobuf:"varint,6,opt,name=leaderCommit,proto3" json:"leaderCommit,omitempty"`
+	PrevLogIndex  int32                  `protobuf:"varint,4,opt,name=prevLogIndex,proto3" json:"prevLogIndex,omitempty"`
+	PrevLogTerm   int64                  `protobuf:"varint,5,opt,name=prevLogTerm,proto3" json:"prevLogTerm,omitempty"`
+	LeaderCommit  int64                  `protobuf:"varint,6,opt,name=leaderCommit,proto3" json:"leaderCommit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -70,7 +70,7 @@ func (x *AppendEntriesReq) GetEntries() []*Entry {
 	return nil
 }
 
-func (x *AppendEntriesReq) GetTerm() uint64 {
+func (x *AppendEntriesReq) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
@@ -84,21 +84,21 @@ func (x *AppendEntriesReq) GetLeaderId() string {
 	return ""
 }
 
-func (x *AppendEntriesReq) GetPrevLogIndex() uint64 {
+func (x *AppendEntriesReq) GetPrevLogIndex() int32 {
 	if x != nil {
 		return x.PrevLogIndex
 	}
 	return 0
 }
 
-func (x *AppendEntriesReq) GetPrevLogTerm() uint64 {
+func (x *AppendEntriesReq) GetPrevLogTerm() int64 {
 	if x != nil {
 		return x.PrevLogTerm
 	}
 	return 0
 }
 
-func (x *AppendEntriesReq) GetLeaderCommit() uint64 {
+func (x *AppendEntriesReq) GetLeaderCommit() int64 {
 	if x != nil {
 		return x.LeaderCommit
 	}
@@ -107,7 +107,7 @@ func (x *AppendEntriesReq) GetLeaderCommit() uint64 {
 
 type AppendEntriesResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Term          uint64                 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
+	Term          int64                  `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
 	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -143,7 +143,7 @@ func (*AppendEntriesResp) Descriptor() ([]byte, []int) {
 	return file_protos_raft_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AppendEntriesResp) GetTerm() uint64 {
+func (x *AppendEntriesResp) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
@@ -159,10 +159,10 @@ func (x *AppendEntriesResp) GetSuccess() bool {
 
 type RequestVoteReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Term          uint64                 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
+	Term          int64                  `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
 	CandidateId   string                 `protobuf:"bytes,2,opt,name=candidateId,proto3" json:"candidateId,omitempty"`
-	LastLogIndex  uint64                 `protobuf:"varint,3,opt,name=lastLogIndex,proto3" json:"lastLogIndex,omitempty"`
-	LastLogTerm   uint64                 `protobuf:"varint,4,opt,name=lastLogTerm,proto3" json:"lastLogTerm,omitempty"`
+	LastLogIndex  int64                  `protobuf:"varint,3,opt,name=lastLogIndex,proto3" json:"lastLogIndex,omitempty"`
+	LastLogTerm   int64                  `protobuf:"varint,4,opt,name=lastLogTerm,proto3" json:"lastLogTerm,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -197,7 +197,7 @@ func (*RequestVoteReq) Descriptor() ([]byte, []int) {
 	return file_protos_raft_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *RequestVoteReq) GetTerm() uint64 {
+func (x *RequestVoteReq) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
@@ -211,14 +211,14 @@ func (x *RequestVoteReq) GetCandidateId() string {
 	return ""
 }
 
-func (x *RequestVoteReq) GetLastLogIndex() uint64 {
+func (x *RequestVoteReq) GetLastLogIndex() int64 {
 	if x != nil {
 		return x.LastLogIndex
 	}
 	return 0
 }
 
-func (x *RequestVoteReq) GetLastLogTerm() uint64 {
+func (x *RequestVoteReq) GetLastLogTerm() int64 {
 	if x != nil {
 		return x.LastLogTerm
 	}
@@ -227,7 +227,7 @@ func (x *RequestVoteReq) GetLastLogTerm() uint64 {
 
 type RequestVoteResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Term          uint64                 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
+	Term          int64                  `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
 	VoteGranted   bool                   `protobuf:"varint,2,opt,name=voteGranted,proto3" json:"voteGranted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -263,7 +263,7 @@ func (*RequestVoteResp) Descriptor() ([]byte, []int) {
 	return file_protos_raft_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *RequestVoteResp) GetTerm() uint64 {
+func (x *RequestVoteResp) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
@@ -280,8 +280,8 @@ func (x *RequestVoteResp) GetVoteGranted() bool {
 type Entry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	Term          uint64                 `protobuf:"varint,2,opt,name=term,proto3" json:"term,omitempty"`
-	Index         uint64                 `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
+	Term          int64                  `protobuf:"varint,2,opt,name=term,proto3" json:"term,omitempty"`
+	Index         int64                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
 	AppendedAt    uint64                 `protobuf:"varint,4,opt,name=appendedAt,proto3" json:"appendedAt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -324,14 +324,14 @@ func (x *Entry) GetData() []byte {
 	return nil
 }
 
-func (x *Entry) GetTerm() uint64 {
+func (x *Entry) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
 	return 0
 }
 
-func (x *Entry) GetIndex() uint64 {
+func (x *Entry) GetIndex() int64 {
 	if x != nil {
 		return x.Index
 	}
@@ -352,26 +352,26 @@ const file_protos_raft_proto_rawDesc = "" +
 	"\x11protos/raft.proto\x12\x04raft\"\xd3\x01\n" +
 	"\x10AppendEntriesReq\x12%\n" +
 	"\aentries\x18\x01 \x03(\v2\v.raft.EntryR\aentries\x12\x12\n" +
-	"\x04term\x18\x02 \x01(\x04R\x04term\x12\x1a\n" +
+	"\x04term\x18\x02 \x01(\x03R\x04term\x12\x1a\n" +
 	"\bleaderId\x18\x03 \x01(\tR\bleaderId\x12\"\n" +
-	"\fprevLogIndex\x18\x04 \x01(\x04R\fprevLogIndex\x12 \n" +
-	"\vprevLogTerm\x18\x05 \x01(\x04R\vprevLogTerm\x12\"\n" +
-	"\fleaderCommit\x18\x06 \x01(\x04R\fleaderCommit\"A\n" +
+	"\fprevLogIndex\x18\x04 \x01(\x05R\fprevLogIndex\x12 \n" +
+	"\vprevLogTerm\x18\x05 \x01(\x03R\vprevLogTerm\x12\"\n" +
+	"\fleaderCommit\x18\x06 \x01(\x03R\fleaderCommit\"A\n" +
 	"\x11AppendEntriesResp\x12\x12\n" +
-	"\x04term\x18\x01 \x01(\x04R\x04term\x12\x18\n" +
+	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\"\x8c\x01\n" +
 	"\x0eRequestVoteReq\x12\x12\n" +
-	"\x04term\x18\x01 \x01(\x04R\x04term\x12 \n" +
+	"\x04term\x18\x01 \x01(\x03R\x04term\x12 \n" +
 	"\vcandidateId\x18\x02 \x01(\tR\vcandidateId\x12\"\n" +
-	"\flastLogIndex\x18\x03 \x01(\x04R\flastLogIndex\x12 \n" +
-	"\vlastLogTerm\x18\x04 \x01(\x04R\vlastLogTerm\"G\n" +
+	"\flastLogIndex\x18\x03 \x01(\x03R\flastLogIndex\x12 \n" +
+	"\vlastLogTerm\x18\x04 \x01(\x03R\vlastLogTerm\"G\n" +
 	"\x0fRequestVoteResp\x12\x12\n" +
-	"\x04term\x18\x01 \x01(\x04R\x04term\x12 \n" +
+	"\x04term\x18\x01 \x01(\x03R\x04term\x12 \n" +
 	"\vvoteGranted\x18\x02 \x01(\bR\vvoteGranted\"e\n" +
 	"\x05Entry\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x12\n" +
-	"\x04term\x18\x02 \x01(\x04R\x04term\x12\x14\n" +
-	"\x05index\x18\x03 \x01(\x04R\x05index\x12\x1e\n" +
+	"\x04term\x18\x02 \x01(\x03R\x04term\x12\x14\n" +
+	"\x05index\x18\x03 \x01(\x03R\x05index\x12\x1e\n" +
 	"\n" +
 	"appendedAt\x18\x04 \x01(\x04R\n" +
 	"appendedAt2\x84\x01\n" +

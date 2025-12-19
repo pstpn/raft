@@ -17,25 +17,28 @@ func NewGRPCHandler() *GRPCHandler {
 }
 
 func (g *GRPCHandler) AppendEntries(ctx context.Context, req *protos.AppendEntriesReq) (*protos.AppendEntriesResp, error) {
-	currentTerm := g.raft.GetCurrentTerm(ctx)
+	currentTerm := int64(g.raft.GetCurrentTerm(ctx))
 	if currentTerm > req.GetTerm() {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
 	if currentTerm < req.GetTerm() {
-		g.raft.SetCurrentTerm(ctx, req.GetTerm())
+		g.raft.SetCurrentTerm(ctx, int(req.GetTerm()))
+		g.raft.SetState(ctx, raft.Follower)
+	}
+	if currentTerm == req.GetTerm() && g.raft.GetCurrentState(ctx) == raft.Candidate {
 		g.raft.SetState(ctx, raft.Follower)
 	}
 	if g.raft.GetCurrentState(ctx) == raft.Leader {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
-	prevLogEntry := g.raft.GetLogEntry(ctx, req.GetPrevLogIndex())
-	if prevLogEntry == nil || prevLogEntry.Term != req.GetPrevLogTerm() {
+	prevLogEntry := g.raft.GetLogEntry(ctx, int(req.GetPrevLogIndex()))
+	if prevLogEntry == nil || int64(prevLogEntry.Term) != req.GetPrevLogTerm() {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
-	g.raft.AppendLogEntries(ctx, logEntriesFromGRPC(req.GetEntries()), req.GetLeaderCommit())
+	g.raft.AppendLogEntries(ctx, logEntriesFromGRPC(req.GetEntries()), int(req.GetLeaderCommit()))
 
 	return &protos.AppendEntriesResp{
 		Term:    currentTerm,
@@ -52,8 +55,8 @@ func logEntriesFromGRPC(entries []*protos.Entry) []*raft.LogEntry {
 	logEntries := make([]*raft.LogEntry, len(entries))
 	for i, entry := range entries {
 		logEntries[i] = &raft.LogEntry{
-			Index:      entry.GetIndex(),
-			Term:       entry.GetTerm(),
+			Index:      int(entry.GetIndex()),
+			Term:       int(entry.GetTerm()),
 			Data:       entry.GetData(),
 			AppendedAt: entry.GetAppendedAt(),
 		}
