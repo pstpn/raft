@@ -26,7 +26,7 @@ type AppendEntriesReq struct {
 	Entries       []*Entry               `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
 	Term          int64                  `protobuf:"varint,2,opt,name=term,proto3" json:"term,omitempty"`
 	LeaderId      string                 `protobuf:"bytes,3,opt,name=leaderId,proto3" json:"leaderId,omitempty"`
-	PrevLogIndex  int32                  `protobuf:"varint,4,opt,name=prevLogIndex,proto3" json:"prevLogIndex,omitempty"`
+	PrevLogIndex  int64                  `protobuf:"varint,4,opt,name=prevLogIndex,proto3" json:"prevLogIndex,omitempty"`
 	PrevLogTerm   int64                  `protobuf:"varint,5,opt,name=prevLogTerm,proto3" json:"prevLogTerm,omitempty"`
 	LeaderCommit  int64                  `protobuf:"varint,6,opt,name=leaderCommit,proto3" json:"leaderCommit,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -84,7 +84,7 @@ func (x *AppendEntriesReq) GetLeaderId() string {
 	return ""
 }
 
-func (x *AppendEntriesReq) GetPrevLogIndex() int32 {
+func (x *AppendEntriesReq) GetPrevLogIndex() int64 {
 	if x != nil {
 		return x.PrevLogIndex
 	}
@@ -354,7 +354,7 @@ const file_protos_raft_proto_rawDesc = "" +
 	"\aentries\x18\x01 \x03(\v2\v.raft.EntryR\aentries\x12\x12\n" +
 	"\x04term\x18\x02 \x01(\x03R\x04term\x12\x1a\n" +
 	"\bleaderId\x18\x03 \x01(\tR\bleaderId\x12\"\n" +
-	"\fprevLogIndex\x18\x04 \x01(\x05R\fprevLogIndex\x12 \n" +
+	"\fprevLogIndex\x18\x04 \x01(\x03R\fprevLogIndex\x12 \n" +
 	"\vprevLogTerm\x18\x05 \x01(\x03R\vprevLogTerm\x12\"\n" +
 	"\fleaderCommit\x18\x06 \x01(\x03R\fleaderCommit\"A\n" +
 	"\x11AppendEntriesResp\x12\x12\n" +
