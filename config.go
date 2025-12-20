@@ -1,6 +1,6 @@
-package config
+package main
 
-type Raft struct {
+type Config struct {
 	NodeAddr         string   `yaml:"nodeAddr"`
 	ClusterNodesAddr []string `yaml:"clusterNodesAddr"`
 }

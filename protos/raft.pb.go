@@ -282,7 +282,7 @@ type Entry struct {
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	Term          int64                  `protobuf:"varint,2,opt,name=term,proto3" json:"term,omitempty"`
 	Index         int64                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
-	AppendedAt    uint64                 `protobuf:"varint,4,opt,name=appendedAt,proto3" json:"appendedAt,omitempty"`
+	AppendedAt    int64                  `protobuf:"varint,4,opt,name=appendedAt,proto3" json:"appendedAt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -338,11 +338,291 @@ func (x *Entry) GetIndex() int64 {
 	return 0
 }
 
-func (x *Entry) GetAppendedAt() uint64 {
+func (x *Entry) GetAppendedAt() int64 {
 	if x != nil {
 		return x.AppendedAt
 	}
 	return 0
+}
+
+type SetValueReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetValueReq) Reset() {
+	*x = SetValueReq{}
+	mi := &file_protos_raft_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetValueReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetValueReq) ProtoMessage() {}
+
+func (x *SetValueReq) ProtoReflect() protoreflect.Message {
+	mi := &file_protos_raft_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetValueReq.ProtoReflect.Descriptor instead.
+func (*SetValueReq) Descriptor() ([]byte, []int) {
+	return file_protos_raft_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SetValueReq) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SetValueReq) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type SetValueResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetValueResp) Reset() {
+	*x = SetValueResp{}
+	mi := &file_protos_raft_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetValueResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetValueResp) ProtoMessage() {}
+
+func (x *SetValueResp) ProtoReflect() protoreflect.Message {
+	mi := &file_protos_raft_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetValueResp.ProtoReflect.Descriptor instead.
+func (*SetValueResp) Descriptor() ([]byte, []int) {
+	return file_protos_raft_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SetValueResp) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+type GetValueReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetValueReq) Reset() {
+	*x = GetValueReq{}
+	mi := &file_protos_raft_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetValueReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetValueReq) ProtoMessage() {}
+
+func (x *GetValueReq) ProtoReflect() protoreflect.Message {
+	mi := &file_protos_raft_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetValueReq.ProtoReflect.Descriptor instead.
+func (*GetValueReq) Descriptor() ([]byte, []int) {
+	return file_protos_raft_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GetValueReq) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type GetValueResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         []byte                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	Found         bool                   `protobuf:"varint,2,opt,name=found,proto3" json:"found,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetValueResp) Reset() {
+	*x = GetValueResp{}
+	mi := &file_protos_raft_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetValueResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetValueResp) ProtoMessage() {}
+
+func (x *GetValueResp) ProtoReflect() protoreflect.Message {
+	mi := &file_protos_raft_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetValueResp.ProtoReflect.Descriptor instead.
+func (*GetValueResp) Descriptor() ([]byte, []int) {
+	return file_protos_raft_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetValueResp) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *GetValueResp) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+type DeleteValueReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteValueReq) Reset() {
+	*x = DeleteValueReq{}
+	mi := &file_protos_raft_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteValueReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteValueReq) ProtoMessage() {}
+
+func (x *DeleteValueReq) ProtoReflect() protoreflect.Message {
+	mi := &file_protos_raft_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteValueReq.ProtoReflect.Descriptor instead.
+func (*DeleteValueReq) Descriptor() ([]byte, []int) {
+	return file_protos_raft_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DeleteValueReq) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type DeleteValueResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteValueResp) Reset() {
+	*x = DeleteValueResp{}
+	mi := &file_protos_raft_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteValueResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteValueResp) ProtoMessage() {}
+
+func (x *DeleteValueResp) ProtoReflect() protoreflect.Message {
+	mi := &file_protos_raft_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteValueResp.ProtoReflect.Descriptor instead.
+func (*DeleteValueResp) Descriptor() ([]byte, []int) {
+	return file_protos_raft_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DeleteValueResp) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
 }
 
 var File_protos_raft_proto protoreflect.FileDescriptor
@@ -373,11 +653,28 @@ const file_protos_raft_proto_rawDesc = "" +
 	"\x04term\x18\x02 \x01(\x03R\x04term\x12\x14\n" +
 	"\x05index\x18\x03 \x01(\x03R\x05index\x12\x1e\n" +
 	"\n" +
-	"appendedAt\x18\x04 \x01(\x04R\n" +
-	"appendedAt2\x84\x01\n" +
+	"appendedAt\x18\x04 \x01(\x03R\n" +
+	"appendedAt\"5\n" +
+	"\vSetValueReq\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"(\n" +
+	"\fSetValueResp\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x1f\n" +
+	"\vGetValueReq\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\":\n" +
+	"\fGetValueResp\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\fR\x05value\x12\x14\n" +
+	"\x05found\x18\x02 \x01(\bR\x05found\"\"\n" +
+	"\x0eDeleteValueReq\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\"+\n" +
+	"\x0fDeleteValueResp\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\xa6\x02\n" +
 	"\x04Raft\x12@\n" +
 	"\rAppendEntries\x12\x16.raft.AppendEntriesReq\x1a\x17.raft.AppendEntriesResp\x12:\n" +
-	"\vRequestVote\x12\x14.raft.RequestVoteReq\x1a\x15.raft.RequestVoteRespB\n" +
+	"\vRequestVote\x12\x14.raft.RequestVoteReq\x1a\x15.raft.RequestVoteResp\x121\n" +
+	"\bSetValue\x12\x11.raft.SetValueReq\x1a\x12.raft.SetValueResp\x121\n" +
+	"\bGetValue\x12\x11.raft.GetValueReq\x1a\x12.raft.GetValueResp\x12:\n" +
+	"\vDeleteValue\x12\x14.raft.DeleteValueReq\x1a\x15.raft.DeleteValueRespB\n" +
 	"Z\b./protosb\x06proto3"
 
 var (
@@ -392,25 +689,37 @@ func file_protos_raft_proto_rawDescGZIP() []byte {
 	return file_protos_raft_proto_rawDescData
 }
 
-var file_protos_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_protos_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_protos_raft_proto_goTypes = []any{
 	(*AppendEntriesReq)(nil),  // 0: raft.AppendEntriesReq
 	(*AppendEntriesResp)(nil), // 1: raft.AppendEntriesResp
 	(*RequestVoteReq)(nil),    // 2: raft.RequestVoteReq
 	(*RequestVoteResp)(nil),   // 3: raft.RequestVoteResp
 	(*Entry)(nil),             // 4: raft.Entry
+	(*SetValueReq)(nil),       // 5: raft.SetValueReq
+	(*SetValueResp)(nil),      // 6: raft.SetValueResp
+	(*GetValueReq)(nil),       // 7: raft.GetValueReq
+	(*GetValueResp)(nil),      // 8: raft.GetValueResp
+	(*DeleteValueReq)(nil),    // 9: raft.DeleteValueReq
+	(*DeleteValueResp)(nil),   // 10: raft.DeleteValueResp
 }
 var file_protos_raft_proto_depIdxs = []int32{
-	4, // 0: raft.AppendEntriesReq.entries:type_name -> raft.Entry
-	0, // 1: raft.Raft.AppendEntries:input_type -> raft.AppendEntriesReq
-	2, // 2: raft.Raft.RequestVote:input_type -> raft.RequestVoteReq
-	1, // 3: raft.Raft.AppendEntries:output_type -> raft.AppendEntriesResp
-	3, // 4: raft.Raft.RequestVote:output_type -> raft.RequestVoteResp
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	4,  // 0: raft.AppendEntriesReq.entries:type_name -> raft.Entry
+	0,  // 1: raft.Raft.AppendEntries:input_type -> raft.AppendEntriesReq
+	2,  // 2: raft.Raft.RequestVote:input_type -> raft.RequestVoteReq
+	5,  // 3: raft.Raft.SetValue:input_type -> raft.SetValueReq
+	7,  // 4: raft.Raft.GetValue:input_type -> raft.GetValueReq
+	9,  // 5: raft.Raft.DeleteValue:input_type -> raft.DeleteValueReq
+	1,  // 6: raft.Raft.AppendEntries:output_type -> raft.AppendEntriesResp
+	3,  // 7: raft.Raft.RequestVote:output_type -> raft.RequestVoteResp
+	6,  // 8: raft.Raft.SetValue:output_type -> raft.SetValueResp
+	8,  // 9: raft.Raft.GetValue:output_type -> raft.GetValueResp
+	10, // 10: raft.Raft.DeleteValue:output_type -> raft.DeleteValueResp
+	6,  // [6:11] is the sub-list for method output_type
+	1,  // [1:6] is the sub-list for method input_type
+	1,  // [1:1] is the sub-list for extension type_name
+	1,  // [1:1] is the sub-list for extension extendee
+	0,  // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_protos_raft_proto_init() }
@@ -424,7 +733,7 @@ func file_protos_raft_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protos_raft_proto_rawDesc), len(file_protos_raft_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

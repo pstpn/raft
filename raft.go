@@ -1,7 +1,8 @@
-package raft
+package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -10,7 +11,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
-	"raft/config"
 	"raft/protos"
 )
 
@@ -25,33 +25,28 @@ const (
 	maxTimeout = 300 * time.Millisecond
 
 	heartbeatInterval = 50 * time.Millisecond
-	replicateInterval = 10 * time.Millisecond
+	replicateInterval = 1 * time.Millisecond
+	applyInterval     = 1 * time.Millisecond
 )
 
 type LogEntry struct {
 	Index      int
 	Term       int
 	Data       []byte
-	AppendedAt uint64 // unix nano
+	AppendedAt int64 // unix nano
 }
 
-// Persistent TODO: implement
-type Persistent interface {
-	GetCurrentTerm(ctx context.Context) int
-	IncCurrentTerm(ctx context.Context) int
-	SetCurrentTerm(ctx context.Context, term int)
+type CommandType int
 
-	GetVotedFor(ctx context.Context) (string, bool)
-	SetVotedFor(ctx context.Context, candidateId string)
+const (
+	Set CommandType = iota
+	Delete
+)
 
-	GetLogEntries(ctx context.Context) []LogEntry
-	AppendLogEntries(ctx context.Context, l []LogEntry)
-}
-
-// FSM TODO: implement
-type FSM interface {
-	Apply(ctx context.Context, l LogEntry)
-	LastApplied(ctx context.Context) (LogEntry, bool)
+type Command struct {
+	Type  CommandType `json:"type"`
+	Key   string      `json:"key"`
+	Value []byte      `json:"value"`
 }
 
 type Raft struct {
@@ -62,8 +57,9 @@ type Raft struct {
 	lastApplied  int
 	log          []LogEntry
 	heartbeatCh  chan struct{}
+	applyLogCh   chan struct{}
 
-	cfg                 *config.Raft
+	cfg                 *Config
 	clusterNodesClients map[string]protos.RaftClient
 	persistent          Persistent
 	fsm                 FSM
@@ -73,7 +69,7 @@ type Raft struct {
 	nodesMatchIndex []int
 }
 
-func NewRaft(ctx context.Context, cfg *config.Raft, fsm FSM, p Persistent) (*Raft, error) {
+func NewRaft(ctx context.Context, cfg *Config, fsm FSM, p Persistent) (*Raft, error) {
 	lastApplied := 0
 	lastAppliedLogEntry, exists := fsm.LastApplied(ctx)
 	if exists {
@@ -103,6 +99,7 @@ func NewRaft(ctx context.Context, cfg *config.Raft, fsm FSM, p Persistent) (*Raf
 		lastApplied:  lastApplied,
 		log:          logEntries,
 		heartbeatCh:  make(chan struct{}),
+		applyLogCh:   make(chan struct{}),
 
 		cfg:                 cfg,
 		clusterNodesClients: clusterNodesClients,
@@ -128,6 +125,10 @@ func (r *Raft) SetVotedFor(ctx context.Context, candidateId string) {
 
 func (r *Raft) GetVotedFor(ctx context.Context) (string, bool) {
 	return r.persistent.GetVotedFor(ctx)
+}
+
+func (r *Raft) GetValue(ctx context.Context, key string) ([]byte, bool) {
+	return r.fsm.Get(ctx, key)
 }
 
 func (r *Raft) GetCurrentState(_ context.Context) State {
@@ -174,22 +175,58 @@ func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit 
 			lastLogIndex = r.log[len(r.log)-1].Index
 		}
 		r.commitIndex = min(leaderCommit, lastLogIndex)
+		r.applyLogCh <- struct{}{}
+	}
+}
+
+func (r *Raft) AppendClientCommand(ctx context.Context, cmd Command) error {
+	if r.GetCurrentState(ctx) != Leader {
+		return ErrNotLeader
+	}
+
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	lastLogEntry, _ := r.getLogEntry(ctx, len(r.log))
+	newEntry := LogEntry{
+		Index:      lastLogEntry.Index + 1,
+		Term:       r.persistent.GetCurrentTerm(ctx),
+		Data:       data,
+		AppendedAt: time.Now().UTC().UnixNano(),
+	}
+
+	r.persistent.AppendLogEntries(ctx, []LogEntry{newEntry})
+	r.log = append(r.log, newEntry)
+	r.mu.Unlock()
+
+	checkApplyTimer := time.NewTimer(applyInterval)
+	defer checkApplyTimer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-checkApplyTimer.C:
+			r.mu.RLock()
+			lastApplied := r.lastApplied
+			r.mu.RUnlock()
+
+			if lastApplied >= newEntry.Index {
+				return nil
+			}
+		}
 	}
 }
 
 func (r *Raft) Start(ctx context.Context) error {
-	defer r.Shutdown()
-
 	gr, ctx := errgroup.WithContext(ctx)
 
 	gr.Go(func() error { return r.stateHandlerLoop(ctx) })
 	gr.Go(func() error { return r.logApplierLoop(ctx) })
 
 	return gr.Wait()
-}
-
-func (r *Raft) Shutdown() {
-	// TODO: implement
 }
 
 func (r *Raft) stateHandlerLoop(ctx context.Context) error {
@@ -338,25 +375,31 @@ func (r *Raft) replicateLeadersLogLoop(ctx context.Context) {
 			r.mu.Lock()
 			r.commitIndex = nextCommitIndex
 			r.mu.Unlock()
+			r.applyLogCh <- struct{}{}
 		}
 	}
 }
 
 func (r *Raft) logApplierLoop(ctx context.Context) error {
+	applyTimer := time.NewTimer(applyInterval)
+	defer applyTimer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		default:
-			r.mu.RLock()
-			applyNeeded := r.commitIndex > r.lastApplied
-			r.mu.RUnlock()
+		case <-r.applyLogCh:
+		case <-applyTimer.C:
+		}
 
-			if applyNeeded {
-				r.mu.Lock()
-				r.applyLogEntries(ctx)
-				r.mu.Unlock()
-			}
+		r.mu.RLock()
+		applyNeeded := r.commitIndex > r.lastApplied
+		r.mu.RUnlock()
+
+		if applyNeeded {
+			r.mu.Lock()
+			r.applyLogEntries(ctx)
+			r.mu.Unlock()
 		}
 	}
 }
@@ -394,8 +437,13 @@ func (r *Raft) appendLogEntries(ctx context.Context, l []LogEntry) {
 	}
 }
 
-func (r *Raft) applyLogEntries(_ context.Context) {
-	// TODO: implement
+func (r *Raft) applyLogEntries(ctx context.Context) {
+	for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
+		entry, _ := r.getLogEntry(ctx, i)
+		r.fsm.Apply(ctx, entry)
+		r.lastApplied = i
+	}
+	r.lastApplied = r.commitIndex
 }
 
 func (r *Raft) callVoteForMeRPC(ctx context.Context, votedCh chan<- struct{}, currentTerm int) {

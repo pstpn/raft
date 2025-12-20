@@ -6,13 +6,20 @@ import (
 
 	"google.golang.org/grpc"
 
-	grpcserver "raft/grpc"
 	"raft/protos"
 )
 
 func main() {
+	// ctx := context.Background()
+
+	// raft, err := NewRaft(ctx, )
+	// if err != nil {
+	//	// log.Fatal
+	//	panic(err)
+	//}
+
+	grpcHandler := NewGRPCServer(nil)
 	grpcServer := grpc.NewServer()
-	grpcHandler := grpcserver.NewServer()
 	protos.RegisterRaftServer(grpcServer, grpcHandler)
 
 	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", 4044))
