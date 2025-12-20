@@ -1,0 +1,259 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+output:
+  sort-order:
+    - linter
+    - severity
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - copyloopvar
+    - decorder
+    - dogsled
+    - dupl
+    - errname
+    - errorlint
+    - exhaustive
+    - gocheckcompilerdirectives
+    - gochecknoglobals
+    - goconst
+    - gocritic
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - mnd
+    - musttag
+    - nilerr
+    - nilnil
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - perfsprint
+    - prealloc
+    - reassign
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - testpackage
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+  settings:
+    decorder:
+      disable-dec-num-check: false
+      disable-type-dec-num-check: true
+    dogsled:
+      max-blank-identifiers: 3
+    dupl:
+      threshold: 200
+    exhaustive:
+      check:
+        - switch
+        - map
+      default-signifies-exhaustive: true
+    goconst:
+      min-len: 2
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - whyNoLint
+        - singleCaseSwitch
+        - paramTypeCombine
+        - unnamedResult
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      settings:
+        hugeParam:
+          sizeThreshold: 120
+        rangeValCopy:
+          sizeThreshold: 512
+    govet:
+      disable:
+        - fieldalignment
+        - shadow
+      enable-all: true
+    nilnil:
+      detect-opposite: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    nonamedreturns:
+      report-error-in-defer: true
+    revive:
+      rules:
+        - name: atomic
+        - name: call-to-gc
+        - name: cognitive-complexity
+          arguments:
+            - 20
+        - name: confusing-naming
+        - name: confusing-results
+        - name: constant-logical-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: cyclomatic
+          arguments:
+            - 15
+        - name: datarace
+        - name: defer
+        - name: dot-imports
+        - name: duplicated-imports
+        - name: early-return
+        - name: empty-block
+        - name: empty-lines
+        - name: enforce-repeated-arg-type-style
+          arguments:
+            - full
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: function-result-limit
+          arguments:
+            - 3
+        - name: get-return
+        - name: identical-branches
+        - name: import-shadowing
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: line-length-limit
+          arguments:
+            - 160
+        - name: max-control-nesting
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: nested-structs
+        - name: optimize-operands-order
+        - name: range-val-address
+        - name: range-val-in-closure
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: redundant-import-alias
+        - name: string-of-int
+        - name: superfluous-else
+        - name: time-equal
+        - name: unchecked-type-assertion
+          arguments:
+            - acceptIgnoredAssertionResult: true
+        - name: unconditional-recursion
+        - name: unexported-naming
+        - name: unexported-return
+        - name: unhandled-error
+          arguments:
+            - fmt.Printf
+            - fmt.Println
+            - fmt.Print
+            - strings.Builder.WriteString
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: unused-parameter
+          arguments:
+            - allowRegex: ctx
+        - name: use-any
+        - name: useless-break
+        - name: var-declaration
+        - name: var-naming
+          arguments:
+            - [ "ID" ]
+        - name: waitgroup-by-value
+    staticcheck:
+      initialisms:
+        - ACL
+        - API
+        - ASCII
+        - CPU
+        - CSS
+        - DNS
+        - EOF
+        - GUID
+        - HTML
+        - HTTP
+        - HTTPS
+        - ID
+        - IP
+        - JSON
+        - QPS
+        - RAM
+        - RPC
+        - SLA
+        - SMTP
+        - SQL
+        - SSH
+        - TCP
+        - TLS
+        - TTL
+        - UDP
+        - UI
+        - GID
+        - UID
+        - UUID
+        - URI
+        - URL
+        - UTF8
+        - VM
+        - XML
+        - XMPP
+        - XSRF
+        - XSS
+        - SIP
+        - RTP
+        - AMQP
+        - DB
+        - TS
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - err113
+          - gochecknoglobals
+          - mnd
+        path: .*(_test|mocks).go
+    paths:
+      - .*temp.go
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  fix: true
+formatters:
+  enable:
+    - gci
+    - gofmt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+      custom-order: true
+  exclusions:
+    generated: lax
+    paths:
+      - .*temp.go
+      - third_party$
+      - builtin$
+      - examples$

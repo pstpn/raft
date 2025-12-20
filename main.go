@@ -6,13 +6,13 @@ import (
 
 	"google.golang.org/grpc"
 
-	"raft/api"
+	grpcserver "raft/grpc"
 	"raft/protos"
 )
 
 func main() {
 	grpcServer := grpc.NewServer()
-	grpcHandler := api.NewGRPCHandler()
+	grpcHandler := grpcserver.NewServer()
 	protos.RegisterRaftServer(grpcServer, grpcHandler)
 
 	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", 4044))

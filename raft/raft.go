@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -24,6 +23,9 @@ const (
 
 	minTimeout = 150 * time.Millisecond
 	maxTimeout = 300 * time.Millisecond
+
+	heartbeatInterval = 50 * time.Millisecond
+	replicateInterval = 10 * time.Millisecond
 )
 
 type LogEntry struct {
@@ -100,7 +102,7 @@ func NewRaft(ctx context.Context, cfg *config.Raft, fsm FSM, p Persistent) (*Raf
 		commitIndex:  commitIndex,
 		lastApplied:  lastApplied,
 		log:          logEntries,
-		heartbeatCh:  make(chan struct{}, 1),
+		heartbeatCh:  make(chan struct{}),
 
 		cfg:                 cfg,
 		clusterNodesClients: clusterNodesClients,
@@ -168,7 +170,7 @@ func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit 
 
 	if leaderCommit > r.commitIndex {
 		lastLogIndex := 0
-		if len(r.log) > 1 {
+		if len(r.log) > 0 {
 			lastLogIndex = r.log[len(r.log)-1].Index
 		}
 		r.commitIndex = min(leaderCommit, lastLogIndex)
@@ -196,50 +198,61 @@ func (r *Raft) stateHandlerLoop(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			switch state := r.GetCurrentState(ctx); state {
-			case Follower:
-				r.followerLoop(ctx)
-			case Candidate:
-				r.candidateLoop(ctx)
-			case Leader:
-				r.leaderLoop(ctx)
-			default:
-				panic(fmt.Sprintf("undefined node state: %d", state))
-			}
+		}
+
+		switch state := r.GetCurrentState(ctx); state {
+		case Follower:
+			r.followerLoop(ctx)
+		case Candidate:
+			r.candidateLoop(ctx)
+		case Leader:
+			r.leaderLoop(ctx)
+		default:
+			panic(fmt.Sprintf("undefined node state: %d", state))
 		}
 	}
 }
 
 func (r *Raft) followerLoop(ctx context.Context) {
-	heartbeatTimeout := randomTimeout()
+	heartbeatTimer := time.NewTimer(randomTimeout())
+	defer heartbeatTimer.Stop()
 
 	for r.GetCurrentState(ctx) == Follower {
 		select {
+		case <-ctx.Done():
+			return
 		case <-r.heartbeatCh:
-			heartbeatTimeout = randomTimeout()
-		case <-heartbeatTimeout:
+			heartbeatTimer.Reset(randomTimeout())
+		case <-heartbeatTimer.C:
 			r.SetState(ctx, Candidate)
-		default:
 		}
 	}
 }
 
 func (r *Raft) candidateLoop(ctx context.Context) {
 	currentTerm := r.persistent.IncCurrentTerm(ctx)
-	voted, votesForElect := &atomic.Int64{}, r.quorumSize(ctx)
-	electionTimeout := randomTimeout()
-	r.callVoteForMeRPC(ctx, voted, currentTerm)
+	voted, voteCh, votesForElect := 1, make(chan struct{}), r.quorumSize(ctx)
+	r.persistent.SetVotedFor(ctx, r.cfg.NodeAddr)
 
+	electionTimer := time.NewTimer(randomTimeout())
+	defer electionTimer.Stop()
+
+	r.callVoteForMeRPC(ctx, voteCh, currentTerm)
 	for r.GetCurrentState(ctx) == Candidate {
 		select {
-		case <-electionTimeout:
-			currentTerm++
-			electionTimeout = randomTimeout()
-			voted = &atomic.Int64{}
-			r.callVoteForMeRPC(ctx, voted, currentTerm)
-		default:
-			if voted.Load()+1 >= int64(votesForElect) {
+		case <-ctx.Done():
+			return
+		case <-electionTimer.C:
+			currentTerm = r.persistent.IncCurrentTerm(ctx)
+			electionTimer.Reset(randomTimeout())
+			voted = 1
+			r.persistent.SetVotedFor(ctx, r.cfg.NodeAddr)
+			r.callVoteForMeRPC(ctx, voteCh, currentTerm)
+		case <-voteCh:
+			voted++
+			if voted >= votesForElect {
 				r.persistent.SetCurrentTerm(ctx, currentTerm)
+				r.persistent.SetVotedFor(ctx, "")
 				r.SetState(ctx, Leader)
 			}
 		}
@@ -250,73 +263,81 @@ func (r *Raft) leaderLoop(ctx context.Context) {
 	r.initLeadersIndexes(ctx)
 	r.callHeartbeatRPC(ctx)
 
+	heartbeatTimer := time.NewTimer(heartbeatInterval)
+	defer heartbeatTimer.Stop()
+
 	replicateCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go r.replicateLeadersLogLoop(replicateCtx)
 
 	for r.GetCurrentState(ctx) == Leader {
-		switch {
-		default:
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeatTimer.C:
 			r.callHeartbeatRPC(ctx)
 		}
 	}
 }
 
 func (r *Raft) replicateLeadersLogLoop(ctx context.Context) {
+	replicateTimer := time.NewTimer(replicateInterval)
+	defer replicateTimer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			r.mu.RLock()
-			lastLog, exists := r.GetLastLogEntry(ctx)
-			if !exists {
-				continue
+		case <-replicateTimer.C:
+			if r.GetCurrentState(ctx) != Leader {
+				return
 			}
-			lastLogIndex := lastLog.Index
-			nextCommitIndex, quorumSize := r.commitIndex+1, r.quorumSize(ctx)
+		}
+
+		r.mu.RLock()
+		prevLogEntry, exists := r.GetLastLogEntry(ctx)
+		if !exists {
+			continue
+		}
+		nextCommitIndex, quorumSize := r.commitIndex+1, r.quorumSize(ctx)
+		nextLogTerm := r.log[nextCommitIndex-1].Term
+		r.mu.RUnlock()
+
+		for i := range r.nodesNextIndex {
+			r.mu.RLock()
+			nodeNextIndex, nodeMatchIndex := r.nodesNextIndex[i], r.nodesMatchIndex[i]
 			r.mu.RUnlock()
 
-			for i := range r.nodesNextIndex {
+			if prevLogEntry.Index >= nodeNextIndex {
 				r.mu.RLock()
-				nodeNextIndex, nodeMatchIndex := r.nodesNextIndex[i], r.nodesMatchIndex[i]
+				logEntries := append([]LogEntry(nil), r.log[nodeNextIndex-1:prevLogEntry.Index]...)
+				nodeClient := r.clusterNodesClients[r.cfg.ClusterNodesAddr[i]]
 				r.mu.RUnlock()
 
-				if lastLogIndex >= nodeNextIndex {
-					r.mu.RLock()
-					logEntries := r.log[nodeNextIndex-1 : lastLogIndex-1]
-					prevLogEntry := r.log[lastLogIndex-1]
-					nodeClient := r.clusterNodesClients[r.cfg.ClusterNodesAddr[i]]
-					r.mu.RUnlock()
-
-					go func() {
-						ok, err := r.callAppendEntriesRPC(ctx, logEntries, prevLogEntry, nodeClient)
-						if err == nil && !ok {
-							r.mu.Lock()
-							r.nodesNextIndex[i]--
-							r.mu.Unlock()
-						} else if ok {
-							r.mu.Lock()
-							r.nodesNextIndex[i] = lastLogIndex
-							r.nodesMatchIndex[i] = lastLogIndex - 1
-							r.mu.Unlock()
-						}
-					}()
-				}
-
-				if nodeMatchIndex >= nextCommitIndex {
-					quorumSize--
-				}
+				go func() {
+					ok, err := r.callAppendEntriesRPC(ctx, logEntries, prevLogEntry, nodeClient)
+					if err == nil && !ok {
+						r.mu.Lock()
+						r.nodesNextIndex[i]--
+						r.mu.Unlock()
+					} else if ok {
+						r.mu.Lock()
+						r.nodesNextIndex[i] = prevLogEntry.Index + 1
+						r.nodesMatchIndex[i] = prevLogEntry.Index
+						r.mu.Unlock()
+					}
+				}()
 			}
 
-			r.mu.RLock()
-			logTerm := r.log[nextCommitIndex-1].Term
-			r.mu.RUnlock()
-			if quorumSize < 1 && logTerm == r.persistent.GetCurrentTerm(ctx) {
-				r.mu.Lock()
-				r.commitIndex = nextCommitIndex
-				r.mu.Unlock()
+			if nodeMatchIndex >= nextCommitIndex {
+				quorumSize--
 			}
+		}
+
+		if quorumSize < 1 && nextLogTerm == r.persistent.GetCurrentTerm(ctx) {
+			r.mu.Lock()
+			r.commitIndex = nextCommitIndex
+			r.mu.Unlock()
 		}
 	}
 }
@@ -377,7 +398,7 @@ func (r *Raft) applyLogEntries(_ context.Context) {
 	// TODO: implement
 }
 
-func (r *Raft) callVoteForMeRPC(ctx context.Context, voted *atomic.Int64, currentTerm int) {
+func (r *Raft) callVoteForMeRPC(ctx context.Context, votedCh chan<- struct{}, currentTerm int) {
 	lastLogEntry, exists := r.GetLastLogEntry(ctx)
 	commitIndex, logTerm := int64(0), int64(0)
 	if exists {
@@ -396,7 +417,7 @@ func (r *Raft) callVoteForMeRPC(ctx context.Context, voted *atomic.Int64, curren
 			})
 			if err == nil && resp != nil {
 				if resp.GetVoteGranted() {
-					voted.Add(1)
+					votedCh <- struct{}{}
 				}
 				if resp.GetTerm() > int64(r.persistent.GetCurrentTerm(ctx)) {
 					r.persistent.SetCurrentTerm(ctx, int(resp.GetTerm()))
@@ -409,11 +430,7 @@ func (r *Raft) callVoteForMeRPC(ctx context.Context, voted *atomic.Int64, curren
 
 func (r *Raft) callHeartbeatRPC(ctx context.Context) {
 	r.mu.RLock()
-	prevLogEntry, exists := r.GetLogEntry(ctx, len(r.log)-1)
-	if !exists {
-		r.mu.RUnlock()
-		return
-	}
+	prevLogEntry, _ := r.getLogEntry(ctx, len(r.log))
 	r.mu.RUnlock()
 
 	for _, nodeClient := range r.clusterNodesClients {
@@ -474,8 +491,8 @@ func (r *Raft) initLeadersIndexes(ctx context.Context) {
 	r.mu.Unlock()
 }
 
-func randomTimeout() <-chan time.Time {
-	return time.After(time.Duration(rand.Int64N(int64(maxTimeout-minTimeout))) + minTimeout)
+func randomTimeout() time.Duration {
+	return time.Duration(rand.Int64N(int64(maxTimeout-minTimeout))) + minTimeout
 }
 
 func logEntriesToGRPC(entries []LogEntry) []*protos.Entry {
