@@ -30,14 +30,14 @@ const (
 	Set CommandType = iota
 	Delete
 
-	minTimeout = 1500 * time.Millisecond
-	maxTimeout = 3000 * time.Millisecond
+	minTimeout = 150 * time.Millisecond
+	maxTimeout = 300 * time.Millisecond
 
-	heartbeatInterval = 500 * time.Millisecond
+	heartbeatInterval = 50 * time.Millisecond
 	replicateInterval = 10 * time.Millisecond
 	applyInterval     = 10 * time.Millisecond
 
-	rpcTimeout = 200 * time.Millisecond
+	rpcTimeout = 100 * time.Millisecond
 )
 
 func (s State) String() string {
@@ -127,8 +127,8 @@ func NewRaft(ctx context.Context, cfg *Config, logger *SimpleLogger, fsm *Simple
 		commitIndex:  commitIndex,
 		lastApplied:  lastApplied,
 		log:          logEntries,
-		heartbeatCh:  make(chan struct{}, 1),
-		applyLogCh:   make(chan struct{}, 1),
+		heartbeatCh:  make(chan struct{}),
+		applyLogCh:   make(chan struct{}),
 
 		cfg:                 cfg,
 		logger:              logger,
