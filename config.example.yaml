@@ -1,0 +1,7 @@
+logLevel: "info"
+fsmDataDir: "./data/fsm"
+persistentDataDir: "./data/persistent"
+nodeAddr: "127.0.0.1:4044"
+clusterNodesAddr:
+  - "127.0.0.1:4045"
+  - "127.0.0.1:4046"

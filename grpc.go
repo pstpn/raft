@@ -18,19 +18,33 @@ func NewGRPCServer(r *Raft) *GRPCServer {
 func (g *GRPCServer) AppendEntries(ctx context.Context, req *protos.AppendEntriesReq) (*protos.AppendEntriesResp, error) {
 	currentTerm := int64(g.raft.GetCurrentTerm(ctx))
 	if currentTerm > req.GetTerm() {
+		g.raft.logger.Debugf("ignoring appendEntries from %q: currentTerm=%d, reqTerm=%d",
+			req.GetLeaderId(),
+			currentTerm,
+			req.GetTerm(),
+		)
+
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
 	if currentTerm < req.GetTerm() || g.raft.GetCurrentState(ctx) == Candidate {
+		g.raft.logger.Debugf("received appendEntries from %q with higher/equal: reqTerm=%d, currentTerm=%d",
+			req.GetLeaderId(),
+			req.GetTerm(),
+			currentTerm,
+		)
+
 		g.raft.SetCurrentTerm(ctx, int(req.GetTerm()))
 		g.raft.SetState(ctx, Follower)
 	}
+
 	if g.raft.GetCurrentState(ctx) == Leader {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
+	defer g.raft.SendNonblockingHeartbeat(ctx)
 
 	prevLogEntry, exists := g.raft.GetLogEntry(ctx, int(req.GetPrevLogIndex()))
-	if !exists || int64(prevLogEntry.Term) != req.GetPrevLogTerm() {
+	if (req.GetPrevLogIndex() > 0 && !exists) || int64(prevLogEntry.Term) != req.GetPrevLogTerm() {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
@@ -45,23 +59,37 @@ func (g *GRPCServer) AppendEntries(ctx context.Context, req *protos.AppendEntrie
 func (g *GRPCServer) RequestVote(ctx context.Context, req *protos.RequestVoteReq) (*protos.RequestVoteResp, error) {
 	currentTerm := int64(g.raft.GetCurrentTerm(ctx))
 	if currentTerm > req.GetTerm() {
+		g.raft.logger.Debugf("ignoring requestVote from %q: currentTerm=%d, reqTerm=%d",
+			req.GetCandidateId(),
+			currentTerm,
+			req.GetTerm(),
+		)
+
 		return &protos.RequestVoteResp{Term: currentTerm, VoteGranted: false}, nil
 	}
 
 	if currentTerm < req.GetTerm() {
+		g.raft.logger.Debugf("received requestVote from %q with higher term: reqTerm=%d, currentTerm=%d",
+			req.GetCandidateId(),
+			req.GetTerm(),
+			currentTerm,
+		)
+
 		g.raft.SetCurrentTerm(ctx, int(req.GetTerm()))
 		g.raft.SetState(ctx, Follower)
 	}
+
 	if g.raft.GetCurrentState(ctx) == Leader {
 		return &protos.RequestVoteResp{Term: currentTerm, VoteGranted: false}, nil
 	}
+	defer g.raft.SendNonblockingHeartbeat(ctx)
 
 	lastLogEntry, _ := g.raft.GetLastLogEntry(ctx)
+	upToDate := req.GetLastLogTerm() > int64(lastLogEntry.Term) ||
+		(req.GetLastLogTerm() == int64(lastLogEntry.Term) && req.GetLastLogIndex() >= int64(lastLogEntry.Index))
+	if candidateId, exists := g.raft.GetVotedFor(ctx); upToDate && (!exists || candidateId == req.GetCandidateId()) {
+		g.raft.logger.Debugf("granting vote for %q in term=%d", req.GetCandidateId(), req.GetTerm())
 
-	// TODO: need to clear persistent [votedFor] var
-	if candidateId, exists := g.raft.GetVotedFor(ctx); int64(lastLogEntry.Index) <= req.GetLastLogIndex() &&
-		int64(lastLogEntry.Term) == req.GetLastLogTerm() &&
-		(!exists || candidateId == req.GetCandidateId()) {
 		g.raft.SetVotedFor(ctx, req.GetCandidateId())
 		return &protos.RequestVoteResp{Term: currentTerm, VoteGranted: true}, nil
 	}

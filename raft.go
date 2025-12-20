@@ -10,38 +10,66 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"raft/protos"
 )
 
-type State int8
+type (
+	State       int8
+	CommandType int8
+)
 
 const (
 	Follower State = iota
 	Candidate
 	Leader
 
-	minTimeout = 150 * time.Millisecond
-	maxTimeout = 300 * time.Millisecond
+	_ = true == false == true == false // =)
 
-	heartbeatInterval = 50 * time.Millisecond
-	replicateInterval = 1 * time.Millisecond
-	applyInterval     = 1 * time.Millisecond
-)
-
-type LogEntry struct {
-	Index      int
-	Term       int
-	Data       []byte
-	AppendedAt int64 // unix nano
-}
-
-type CommandType int
-
-const (
 	Set CommandType = iota
 	Delete
+
+	minTimeout = 1500 * time.Millisecond
+	maxTimeout = 3000 * time.Millisecond
+
+	heartbeatInterval = 500 * time.Millisecond
+	replicateInterval = 10 * time.Millisecond
+	applyInterval     = 10 * time.Millisecond
+
+	rpcTimeout = 200 * time.Millisecond
 )
+
+func (s State) String() string {
+	switch s {
+	case Follower:
+		return "Follower"
+	case Candidate:
+		return "Candidate"
+	case Leader:
+		return "Leader"
+	default:
+		return "Unknown"
+	}
+}
+
+func (c CommandType) String() string {
+	switch c {
+	case Set:
+		return "SET"
+	case Delete:
+		return "DELETE"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+type LogEntry struct {
+	Index      int    `json:"index"`
+	Term       int    `json:"term"`
+	Data       []byte `json:"data"`
+	AppendedAt int64  `json:"appendedAt"` // unix nano
+}
 
 type Command struct {
 	Type  CommandType `json:"type"`
@@ -60,16 +88,17 @@ type Raft struct {
 	applyLogCh   chan struct{}
 
 	cfg                 *Config
+	logger              *SimpleLogger
 	clusterNodesClients map[string]protos.RaftClient
-	persistent          Persistent
-	fsm                 FSM
+	persistent          *SimplePersistent
+	fsm                 *SimpleFSM
 
 	// Only for leader
 	nodesNextIndex  []int
 	nodesMatchIndex []int
 }
 
-func NewRaft(ctx context.Context, cfg *Config, fsm FSM, p Persistent) (*Raft, error) {
+func NewRaft(ctx context.Context, cfg *Config, logger *SimpleLogger, fsm *SimpleFSM, p *SimplePersistent) (*Raft, error) {
 	lastApplied := 0
 	lastAppliedLogEntry, exists := fsm.LastApplied(ctx)
 	if exists {
@@ -84,31 +113,40 @@ func NewRaft(ctx context.Context, cfg *Config, fsm FSM, p Persistent) (*Raft, er
 
 	clusterNodesClients := make(map[string]protos.RaftClient, len(cfg.ClusterNodesAddr))
 	for _, clusterNodeAddr := range cfg.ClusterNodesAddr {
-		client, err := grpc.NewClient(clusterNodeAddr)
+		client, err := grpc.NewClient(clusterNodeAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			return nil, err
 		}
 		clusterNodesClients[clusterNodeAddr] = protos.NewRaftClient(client)
 	}
 
-	return &Raft{
+	raft := &Raft{
 		mu: &sync.RWMutex{},
 
 		currentState: Follower,
 		commitIndex:  commitIndex,
 		lastApplied:  lastApplied,
 		log:          logEntries,
-		heartbeatCh:  make(chan struct{}),
-		applyLogCh:   make(chan struct{}),
+		heartbeatCh:  make(chan struct{}, 1),
+		applyLogCh:   make(chan struct{}, 1),
 
 		cfg:                 cfg,
+		logger:              logger,
 		clusterNodesClients: clusterNodesClients,
 		persistent:          p,
 		fsm:                 fsm,
 
 		nodesNextIndex:  nil,
 		nodesMatchIndex: nil,
-	}, nil
+	}
+
+	logger.SetStateFunc(func() string {
+		raft.mu.RLock()
+		defer raft.mu.RUnlock()
+		return raft.currentState.String()
+	})
+
+	return raft, nil
 }
 
 func (r *Raft) GetCurrentTerm(ctx context.Context) int {
@@ -116,11 +154,16 @@ func (r *Raft) GetCurrentTerm(ctx context.Context) int {
 }
 
 func (r *Raft) SetCurrentTerm(ctx context.Context, term int) {
+	oldTerm := r.persistent.GetCurrentTerm(ctx)
 	r.persistent.SetCurrentTerm(ctx, term)
+
+	r.logger.Debugf("term changed: oldTerm=%d, currentTerm=%d", oldTerm, term)
 }
 
 func (r *Raft) SetVotedFor(ctx context.Context, candidateId string) {
 	r.persistent.SetVotedFor(ctx, candidateId)
+
+	r.logger.Debugf("voted for %q", candidateId)
 }
 
 func (r *Raft) GetVotedFor(ctx context.Context) (string, bool) {
@@ -139,25 +182,26 @@ func (r *Raft) GetCurrentState(_ context.Context) State {
 
 func (r *Raft) SetState(_ context.Context, state State) {
 	r.mu.Lock()
+	oldState := r.currentState
 	r.currentState = state
 	r.mu.Unlock()
+
+	r.logger.Debugf("state changed: oldState=%q, currentState=%q", oldState.String(), state.String())
 }
 
 func (r *Raft) GetLogEntry(ctx context.Context, index int) (LogEntry, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.getLogEntry(ctx, index)
+	return r.getLog(ctx, index)
 }
 
 func (r *Raft) GetLastLogEntry(ctx context.Context) (LogEntry, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.getLogEntry(ctx, len(r.log))
+	return r.getLog(ctx, len(r.log))
 }
 
 func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit int) {
-	defer r.nonblockingHeartbeat(ctx)
-
 	if len(l) < 1 {
 		return
 	}
@@ -165,9 +209,10 @@ func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// TODO: implement overwrite
 	r.persistent.AppendLogEntries(ctx, l)
-	r.appendLogEntries(ctx, l)
+	r.appendLogs(ctx, l)
+
+	r.logger.Debugf("appended %d log entries from leader", len(l))
 
 	if leaderCommit > r.commitIndex {
 		lastLogIndex := 0
@@ -175,7 +220,9 @@ func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit 
 			lastLogIndex = r.log[len(r.log)-1].Index
 		}
 		r.commitIndex = min(leaderCommit, lastLogIndex)
-		r.applyLogCh <- struct{}{}
+		r.sendNonblockingApply(ctx)
+
+		r.logger.Debugf("updated commitIndex to %d", r.commitIndex)
 	}
 }
 
@@ -190,7 +237,7 @@ func (r *Raft) AppendClientCommand(ctx context.Context, cmd Command) error {
 	}
 
 	r.mu.Lock()
-	lastLogEntry, _ := r.getLogEntry(ctx, len(r.log))
+	lastLogEntry, _ := r.getLog(ctx, len(r.log))
 	newEntry := LogEntry{
 		Index:      lastLogEntry.Index + 1,
 		Term:       r.persistent.GetCurrentTerm(ctx),
@@ -202,13 +249,16 @@ func (r *Raft) AppendClientCommand(ctx context.Context, cmd Command) error {
 	r.log = append(r.log, newEntry)
 	r.mu.Unlock()
 
-	checkApplyTimer := time.NewTimer(applyInterval)
-	defer checkApplyTimer.Stop()
+	r.logger.Infof("appended client command: %q", cmd.Type.String()+" "+cmd.Key)
+
+	checkApplyTicker := time.NewTicker(applyInterval)
+	defer checkApplyTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-checkApplyTimer.C:
+		case <-checkApplyTicker.C:
 			r.mu.RLock()
 			lastApplied := r.lastApplied
 			r.mu.RUnlock()
@@ -217,6 +267,13 @@ func (r *Raft) AppendClientCommand(ctx context.Context, cmd Command) error {
 				return nil
 			}
 		}
+	}
+}
+
+func (r *Raft) SendNonblockingHeartbeat(_ context.Context) {
+	select {
+	case r.heartbeatCh <- struct{}{}:
+	default:
 	}
 }
 
@@ -251,16 +308,16 @@ func (r *Raft) stateHandlerLoop(ctx context.Context) error {
 }
 
 func (r *Raft) followerLoop(ctx context.Context) {
-	heartbeatTimer := time.NewTimer(randomTimeout())
-	defer heartbeatTimer.Stop()
+	heartbeatTicker := time.NewTicker(randomTimeout())
+	defer heartbeatTicker.Stop()
 
 	for r.GetCurrentState(ctx) == Follower {
 		select {
 		case <-ctx.Done():
 			return
 		case <-r.heartbeatCh:
-			heartbeatTimer.Reset(randomTimeout())
-		case <-heartbeatTimer.C:
+			heartbeatTicker.Reset(randomTimeout())
+		case <-heartbeatTicker.C:
 			r.SetState(ctx, Candidate)
 		}
 	}
@@ -268,22 +325,26 @@ func (r *Raft) followerLoop(ctx context.Context) {
 
 func (r *Raft) candidateLoop(ctx context.Context) {
 	currentTerm := r.persistent.IncCurrentTerm(ctx)
-	voted, voteCh, votesForElect := 1, make(chan struct{}), r.quorumSize(ctx)
+	voted, voteCh, votesForElect := 1, make(chan struct{}), r.quorumSize()
 	r.persistent.SetVotedFor(ctx, r.cfg.NodeAddr)
 
-	electionTimer := time.NewTimer(randomTimeout())
-	defer electionTimer.Stop()
+	electionTicker := time.NewTicker(randomTimeout())
+	defer electionTicker.Stop()
 
 	r.callVoteForMeRPC(ctx, voteCh, currentTerm)
 	for r.GetCurrentState(ctx) == Candidate {
 		select {
 		case <-ctx.Done():
 			return
-		case <-electionTimer.C:
-			currentTerm = r.persistent.IncCurrentTerm(ctx)
-			electionTimer.Reset(randomTimeout())
-			voted = 1
+		case <-r.heartbeatCh:
+			electionTicker.Reset(randomTimeout())
+		case <-electionTicker.C:
+			currentTerm, voted = r.persistent.IncCurrentTerm(ctx), 1
+			electionTicker.Reset(randomTimeout())
 			r.persistent.SetVotedFor(ctx, r.cfg.NodeAddr)
+
+			r.logger.Debugf("election timeout: oldTerm=%d, currentTerm=%d", currentTerm-1, currentTerm)
+
 			r.callVoteForMeRPC(ctx, voteCh, currentTerm)
 		case <-voteCh:
 			voted++
@@ -297,11 +358,13 @@ func (r *Raft) candidateLoop(ctx context.Context) {
 }
 
 func (r *Raft) leaderLoop(ctx context.Context) {
+	r.logger.Debugf("became leader, sending initial heartbeats")
+
 	r.initLeadersIndexes(ctx)
 	r.callHeartbeatRPC(ctx)
 
-	heartbeatTimer := time.NewTimer(heartbeatInterval)
-	defer heartbeatTimer.Stop()
+	heartbeatTicker := time.NewTicker(heartbeatInterval)
+	defer heartbeatTicker.Stop()
 
 	replicateCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -311,59 +374,50 @@ func (r *Raft) leaderLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-heartbeatTimer.C:
+		case <-heartbeatTicker.C:
 			r.callHeartbeatRPC(ctx)
 		}
 	}
 }
 
 func (r *Raft) replicateLeadersLogLoop(ctx context.Context) {
-	replicateTimer := time.NewTimer(replicateInterval)
-	defer replicateTimer.Stop()
+	replicateTicker := time.NewTicker(replicateInterval)
+	defer replicateTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-replicateTimer.C:
+		case <-replicateTicker.C:
 			if r.GetCurrentState(ctx) != Leader {
 				return
 			}
 		}
 
 		r.mu.RLock()
-		prevLogEntry, exists := r.GetLastLogEntry(ctx)
-		if !exists {
-			continue
-		}
-		nextCommitIndex, quorumSize := r.commitIndex+1, r.quorumSize(ctx)
-		nextLogTerm := r.log[nextCommitIndex-1].Term
+		logLen := len(r.log)
+		nodesNextIndex := append([]int(nil), r.nodesNextIndex...)
+		nodesMatchIndex := append([]int(nil), r.nodesMatchIndex...)
+
+		nextCommitIndex := r.commitIndex + 1
+		quorumSize := r.quorumSize()
 		r.mu.RUnlock()
 
-		for i := range r.nodesNextIndex {
-			r.mu.RLock()
-			nodeNextIndex, nodeMatchIndex := r.nodesNextIndex[i], r.nodesMatchIndex[i]
-			r.mu.RUnlock()
+		for nodeIdx, nodeAddr := range r.cfg.ClusterNodesAddr {
+			nodeNextIndex := nodesNextIndex[nodeIdx]
+			if nodeNextIndex < 1 {
+				nodeNextIndex = 1
+			}
 
-			if prevLogEntry.Index >= nodeNextIndex {
+			nodeMatchIndex := nodesMatchIndex[nodeIdx]
+			if nodesMatchIndex[nodeIdx] < logLen && nodeNextIndex < logLen {
 				r.mu.RLock()
-				logEntries := append([]LogEntry(nil), r.log[nodeNextIndex-1:prevLogEntry.Index]...)
-				nodeClient := r.clusterNodesClients[r.cfg.ClusterNodesAddr[i]]
+				prevLogEntry, _ := r.getLog(ctx, nodeNextIndex-1)
+				entriesToSend := append([]LogEntry(nil), r.log[prevLogEntry.Index-1:logLen]...)
+				nodeClient := r.clusterNodesClients[nodeAddr]
 				r.mu.RUnlock()
 
-				go func() {
-					ok, err := r.callAppendEntriesRPC(ctx, logEntries, prevLogEntry, nodeClient)
-					if err == nil && !ok {
-						r.mu.Lock()
-						r.nodesNextIndex[i]--
-						r.mu.Unlock()
-					} else if ok {
-						r.mu.Lock()
-						r.nodesNextIndex[i] = prevLogEntry.Index + 1
-						r.nodesMatchIndex[i] = prevLogEntry.Index
-						r.mu.Unlock()
-					}
-				}()
+				go r.callAppendEntriesRPC(ctx, nodeIdx, entriesToSend, prevLogEntry, nodeClient)
 			}
 
 			if nodeMatchIndex >= nextCommitIndex {
@@ -371,25 +425,34 @@ func (r *Raft) replicateLeadersLogLoop(ctx context.Context) {
 			}
 		}
 
-		if quorumSize < 1 && nextLogTerm == r.persistent.GetCurrentTerm(ctx) {
-			r.mu.Lock()
-			r.commitIndex = nextCommitIndex
-			r.mu.Unlock()
-			r.applyLogCh <- struct{}{}
+		if nextCommitIndex <= logLen {
+			r.mu.RLock()
+			nextCommitLogTerm := r.log[nextCommitIndex-1].Term
+			r.mu.RUnlock()
+
+			if quorumSize < 1 && nextCommitLogTerm == r.persistent.GetCurrentTerm(ctx) {
+				r.mu.Lock()
+				if r.commitIndex < nextCommitIndex {
+					r.commitIndex = nextCommitIndex
+				}
+				r.mu.Unlock()
+
+				r.sendNonblockingApply(ctx)
+			}
 		}
 	}
 }
 
 func (r *Raft) logApplierLoop(ctx context.Context) error {
-	applyTimer := time.NewTimer(applyInterval)
-	defer applyTimer.Stop()
+	applyTicker := time.NewTicker(applyInterval)
+	defer applyTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-r.applyLogCh:
-		case <-applyTimer.C:
+		case <-applyTicker.C:
 		}
 
 		r.mu.RLock()
@@ -404,27 +467,22 @@ func (r *Raft) logApplierLoop(ctx context.Context) error {
 	}
 }
 
-func (r *Raft) getLogEntry(_ context.Context, index int) (LogEntry, bool) {
-	if len(r.log) < index {
+func (r *Raft) getLog(_ context.Context, index int) (LogEntry, bool) {
+	if index < 1 || len(r.log) < index {
 		return LogEntry{}, false
 	}
+
 	return r.log[index-1], true
 }
 
-func (r *Raft) nonblockingHeartbeat(_ context.Context) {
-	select {
-	case r.heartbeatCh <- struct{}{}:
-	default:
-	}
+func (r *Raft) quorumSize() int {
+	totalNodes := len(r.clusterNodesClients) + 1
+	return totalNodes/2 + 1
 }
 
-func (r *Raft) quorumSize(_ context.Context) int {
-	return len(r.clusterNodesClients)/2 + 1
-}
-
-func (r *Raft) appendLogEntries(ctx context.Context, l []LogEntry) {
+func (r *Raft) appendLogs(ctx context.Context, l []LogEntry) {
 	for i, newLogEntry := range l {
-		currentLogEntry, exists := r.getLogEntry(ctx, newLogEntry.Index)
+		currentLogEntry, exists := r.getLog(ctx, newLogEntry.Index)
 		if !exists {
 			r.log = append(r.log, l[i:]...)
 			return
@@ -438,12 +496,21 @@ func (r *Raft) appendLogEntries(ctx context.Context, l []LogEntry) {
 }
 
 func (r *Raft) applyLogEntries(ctx context.Context) {
-	for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
-		entry, _ := r.getLogEntry(ctx, i)
+	prevAppliedIndex := r.lastApplied
+
+	for i := prevAppliedIndex + 1; i <= r.commitIndex; i++ {
+		entry, _ := r.getLog(ctx, i)
 		r.fsm.Apply(ctx, entry)
 		r.lastApplied = i
+
+		r.logger.Debugf("applied log entry: index=%d, term=%d", entry.Index, entry.Term)
 	}
 	r.lastApplied = r.commitIndex
+
+	applied := r.lastApplied - prevAppliedIndex
+	if applied > 0 {
+		r.logger.Infof("applied %d log entries up to index=%d", applied, r.lastApplied)
+	}
 }
 
 func (r *Raft) callVoteForMeRPC(ctx context.Context, votedCh chan<- struct{}, currentTerm int) {
@@ -456,42 +523,62 @@ func (r *Raft) callVoteForMeRPC(ctx context.Context, votedCh chan<- struct{}, cu
 	}
 
 	for _, nodeClient := range r.clusterNodesClients {
-		go func() {
-			resp, err := nodeClient.RequestVote(ctx, &protos.RequestVoteReq{
+		go func(client protos.RaftClient) {
+			rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+			defer cancel()
+
+			resp, err := client.RequestVote(rpcCtx, &protos.RequestVoteReq{
 				Term:         int64(currentTerm),
 				CandidateId:  r.cfg.NodeAddr,
 				LastLogIndex: commitIndex,
 				LastLogTerm:  logTerm,
 			})
 			if err == nil && resp != nil {
+				if resp.GetTerm() > int64(currentTerm) {
+					r.logger.Debugf("received higher term in requestVote response: oldTerm=%d, currentTerm=%d",
+						currentTerm,
+						resp.GetTerm(),
+					)
+
+					r.persistent.SetCurrentTerm(ctx, int(resp.GetTerm()))
+					r.SetState(ctx, Follower)
+					return
+				}
+
 				if resp.GetVoteGranted() {
 					votedCh <- struct{}{}
 				}
-				if resp.GetTerm() > int64(r.persistent.GetCurrentTerm(ctx)) {
-					r.persistent.SetCurrentTerm(ctx, int(resp.GetTerm()))
-					r.SetState(ctx, Follower)
-				}
 			}
-		}()
+		}(nodeClient)
 	}
 }
 
 func (r *Raft) callHeartbeatRPC(ctx context.Context) {
 	r.mu.RLock()
-	prevLogEntry, _ := r.getLogEntry(ctx, len(r.log))
+	prevLogEntry, _ := r.getLog(ctx, len(r.log))
 	r.mu.RUnlock()
 
-	for _, nodeClient := range r.clusterNodesClients {
-		go func() { _, _ = r.callAppendEntriesRPC(ctx, nil, prevLogEntry, nodeClient) }()
+	for nodeIdx, nodeAddr := range r.cfg.ClusterNodesAddr {
+		go func(nodeIdx int, address string, client protos.RaftClient, prev LogEntry) {
+			r.logger.Debugf("sending heartbeat to %q", address)
+
+			if !r.callAppendEntriesRPC(ctx, nodeIdx, nil, prev, client) {
+				r.logger.Warnf("heartbeat to %q rejected", address)
+			}
+		}(nodeIdx, nodeAddr, r.clusterNodesClients[nodeAddr], prevLogEntry)
 	}
 }
 
 func (r *Raft) callAppendEntriesRPC(
 	ctx context.Context,
+	nodeIdx int,
 	entries []LogEntry,
 	prevLogEntry LogEntry,
 	nodeClient protos.RaftClient,
-) (bool, error) {
+) bool {
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
 	currentTerm := r.persistent.GetCurrentTerm(ctx)
 	r.mu.RLock()
 	commitIndex := int64(r.commitIndex)
@@ -502,7 +589,7 @@ func (r *Raft) callAppendEntriesRPC(
 		appendEntries = logEntriesToGRPC(entries)
 	}
 
-	resp, err := nodeClient.AppendEntries(ctx, &protos.AppendEntriesReq{
+	resp, err := nodeClient.AppendEntries(rpcCtx, &protos.AppendEntriesReq{
 		Entries:      appendEntries,
 		Term:         int64(currentTerm),
 		LeaderId:     r.cfg.NodeAddr,
@@ -511,32 +598,64 @@ func (r *Raft) callAppendEntriesRPC(
 		LeaderCommit: commitIndex,
 	})
 	if err != nil || resp == nil {
-		return false, fmt.Errorf("call append entries rpc: %w", err)
+		return false
 	}
-	if resp.GetTerm() > int64(r.persistent.GetCurrentTerm(ctx)) {
+	if resp.GetTerm() > int64(currentTerm) {
+		r.logger.Debugf("received higher term in appendEntries response: oldTerm=%d, currentTerm=%d",
+			currentTerm,
+			resp.GetTerm(),
+		)
+
 		r.persistent.SetCurrentTerm(ctx, int(resp.GetTerm()))
 		r.SetState(ctx, Follower)
-		return false, ErrCurrentTermIsLower
+
+		return false
+	}
+	if !resp.GetSuccess() {
+		r.mu.Lock()
+		if r.nodesNextIndex[nodeIdx] > 1 {
+			r.nodesNextIndex[nodeIdx]--
+		}
+		r.mu.Unlock()
+
+		return resp.GetSuccess()
 	}
 
-	return resp.Success, nil
+	lastSentIndex := prevLogEntry.Index
+	if len(entries) > 0 {
+		lastSentIndex = entries[len(entries)-1].Index
+	}
+
+	r.mu.Lock()
+	r.nodesNextIndex[nodeIdx] = lastSentIndex + 1
+	r.nodesMatchIndex[nodeIdx] = lastSentIndex
+	r.mu.Unlock()
+
+	return resp.GetSuccess()
 }
 
 func (r *Raft) initLeadersIndexes(ctx context.Context) {
 	lastLogIndex := 0
 	r.mu.RLock()
-	lastLogEntry, exists := r.getLogEntry(ctx, len(r.log))
+	lastLogEntry, exists := r.getLog(ctx, len(r.log))
 	r.mu.RUnlock()
 	if exists {
 		lastLogIndex = lastLogEntry.Index
 	}
 
 	r.mu.Lock()
-	r.nodesNextIndex, r.nodesMatchIndex = make([]int, len(r.clusterNodesClients)), make([]int, len(r.clusterNodesClients))
+	r.nodesNextIndex, r.nodesMatchIndex = make([]int, len(r.cfg.ClusterNodesAddr)), make([]int, len(r.cfg.ClusterNodesAddr))
 	for i := range r.nodesNextIndex {
 		r.nodesNextIndex[i] = lastLogIndex + 1
 	}
 	r.mu.Unlock()
+}
+
+func (r *Raft) sendNonblockingApply(_ context.Context) {
+	select {
+	case r.applyLogCh <- struct{}{}:
+	default:
+	}
 }
 
 func randomTimeout() time.Duration {
