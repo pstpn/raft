@@ -27,7 +27,7 @@ func (g *GRPCServer) AppendEntries(ctx context.Context, req *protos.AppendEntrie
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
-	if currentTerm < req.GetTerm() || g.raft.GetCurrentState(ctx) == Candidate {
+	if currentTerm < req.GetTerm() || g.raft.GetCurrentState() == Candidate {
 		g.raft.logger.Debugf("received appendEntries from %q with higher/equal: reqTerm=%d, currentTerm=%d",
 			req.GetLeaderId(),
 			req.GetTerm(),
@@ -35,20 +35,20 @@ func (g *GRPCServer) AppendEntries(ctx context.Context, req *protos.AppendEntrie
 		)
 
 		g.raft.SetCurrentTerm(ctx, int(req.GetTerm()))
-		g.raft.SetState(ctx, Follower)
+		g.raft.SetState(Follower)
 	}
 
-	if g.raft.GetCurrentState(ctx) == Leader {
+	if g.raft.GetCurrentState() == Leader {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 	defer g.raft.SendNonblockingHeartbeat(ctx)
 
-	prevLogEntry, exists := g.raft.GetLogEntry(ctx, int(req.GetPrevLogIndex()))
+	prevLogEntry, exists := g.raft.GetLogEntry(int(req.GetPrevLogIndex()))
 	if (req.GetPrevLogIndex() > 0 && !exists) || int64(prevLogEntry.Term) != req.GetPrevLogTerm() {
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
-	g.raft.AppendLogEntries(ctx, logEntriesFromGRPC(req.GetEntries()), int(req.GetLeaderCommit()))
+	g.raft.AppendLogEntries(ctx, g.logEntriesFromGRPC(req.GetEntries()), int(req.GetLeaderCommit()))
 
 	return &protos.AppendEntriesResp{
 		Term:    currentTerm,
@@ -76,15 +76,15 @@ func (g *GRPCServer) RequestVote(ctx context.Context, req *protos.RequestVoteReq
 		)
 
 		g.raft.SetCurrentTerm(ctx, int(req.GetTerm()))
-		g.raft.SetState(ctx, Follower)
+		g.raft.SetState(Follower)
 	}
 
-	if g.raft.GetCurrentState(ctx) == Leader {
+	if g.raft.GetCurrentState() == Leader {
 		return &protos.RequestVoteResp{Term: currentTerm, VoteGranted: false}, nil
 	}
 	defer g.raft.SendNonblockingHeartbeat(ctx)
 
-	lastLogEntry, _ := g.raft.GetLastLogEntry(ctx)
+	lastLogEntry := g.raft.GetLastLogEntry()
 	upToDate := req.GetLastLogTerm() > int64(lastLogEntry.Term) ||
 		(req.GetLastLogTerm() == int64(lastLogEntry.Term) && req.GetLastLogIndex() >= int64(lastLogEntry.Index))
 	if candidateId, exists := g.raft.GetVotedFor(ctx); upToDate && (!exists || candidateId == req.GetCandidateId()) {
@@ -120,7 +120,7 @@ func (g *GRPCServer) DeleteValue(ctx context.Context, req *protos.DeleteValueReq
 	return &protos.DeleteValueResp{Success: true}, nil
 }
 
-func logEntriesFromGRPC(entries []*protos.Entry) []LogEntry {
+func (g *GRPCServer) logEntriesFromGRPC(entries []*protos.Entry) []LogEntry {
 	logEntries := make([]LogEntry, len(entries))
 
 	for i, entry := range entries {

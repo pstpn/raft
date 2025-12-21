@@ -6,7 +6,7 @@ services:
     environment:
       LOG_LEVEL: "info"
       NODE_ADDR: "raft_node_1:4001"
-      CLUSTER_NODES_ADDR: "raft_node_2:4002,raft_node_3:4003"
+      CLUSTER_NODES_ADDR: "raft_node_2:4002,raft_node_3:4003,raft_node_4:4004,raft_node_5:4005"
       FSM_DATA_DIR: "/data/fsm"
       PERSISTENT_DATA_DIR: "/data/persistent"
     volumes:
@@ -23,7 +23,7 @@ services:
     environment:
       LOG_LEVEL: "info"
       NODE_ADDR: "raft_node_2:4002"
-      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_3:4003"
+      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_3:4003,raft_node_4:4004,raft_node_5:4005"
       FSM_DATA_DIR: "/data/fsm"
       PERSISTENT_DATA_DIR: "/data/persistent"
     volumes:
@@ -40,7 +40,7 @@ services:
     environment:
       LOG_LEVEL: "info"
       NODE_ADDR: "raft_node_3:4003"
-      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_2:4002"
+      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_2:4002,raft_node_4:4004,raft_node_5:4005"
       FSM_DATA_DIR: "/data/fsm"
       PERSISTENT_DATA_DIR: "/data/persistent"
     volumes:
@@ -51,10 +51,46 @@ services:
       - raft-network
     restart: always
 
+  raft_node_4:
+    image: github.com/pstpn/raft:latest
+    container_name: raft_node_4
+    environment:
+      LOG_LEVEL: "info"
+      NODE_ADDR: "raft_node_4:4004"
+      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_2:4002,raft_node_3:4003,raft_node_5:4005"
+      FSM_DATA_DIR: "/data/fsm"
+      PERSISTENT_DATA_DIR: "/data/persistent"
+    volumes:
+      - raft_node_4_data:/data
+    ports:
+      - "4004:4004"
+    networks:
+      - raft-network
+    restart: always
+
+  raft_node_5:
+    image: github.com/pstpn/raft:latest
+    container_name: raft_node_5
+    environment:
+      LOG_LEVEL: "info"
+      NODE_ADDR: "raft_node_5:4005"
+      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_2:4002,raft_node_3:4003,raft_node_4:4004"
+      FSM_DATA_DIR: "/data/fsm"
+      PERSISTENT_DATA_DIR: "/data/persistent"
+    volumes:
+      - raft_node_5_data:/data
+    ports:
+      - "4005:4005"
+    networks:
+      - raft-network
+    restart: always
+
 volumes:
   raft_node_1_data:
   raft_node_2_data:
   raft_node_3_data:
+  raft_node_4_data:
+  raft_node_5_data:
 
 networks:
   raft-network:

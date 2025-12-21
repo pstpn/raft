@@ -18,7 +18,11 @@ down-cluster:
 
 rm-cluster: down-cluster
 	-docker image rm github.com/pstpn/raft:latest
-	-docker volume rm raft_cluster_raft_node_1_data raft_cluster_raft_node_2_data raft_cluster_raft_node_3_data
+	-docker volume rm raft_cluster_raft_node_1_data \
+ 					  raft_cluster_raft_node_2_data \
+					  raft_cluster_raft_node_3_data \
+				      raft_cluster_raft_node_4_data \
+				      raft_cluster_raft_node_5_data
 
 lint:
 	golangci-lint run
