@@ -1,16 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
-
-	"gopkg.in/yaml.v3"
-)
-
-const (
-	configFileName = "config.yaml"
-	configEnvVar   = "CONFIG_PATH"
+	"strings"
 )
 
 type Config struct {
@@ -22,33 +14,29 @@ type Config struct {
 }
 
 func ReadConfig() *Config {
-	path := os.Getenv(configEnvVar)
-	if path == "" {
-		path = configFileName
+	cfg := &Config{
+		LogLevel:          "info",
+		FSMDataDir:        "./data/fsm",
+		PersistentDataDir: "./data/persistent",
+		NodeAddr:          "127.0.0.1:4001",
+		ClusterNodesAddr:  []string{},
 	}
 
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		panic(fmt.Sprintf("failed to read config %s: %v", path, err))
+	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
+		cfg.LogLevel = logLevel
+	}
+	if nodeAddr := os.Getenv("NODE_ADDR"); nodeAddr != "" {
+		cfg.NodeAddr = nodeAddr
+	}
+	if clusterNodesAddr := os.Getenv("CLUSTER_NODES_ADDR"); clusterNodesAddr != "" {
+		cfg.ClusterNodesAddr = strings.Split(clusterNodesAddr, ",")
+	}
+	if fsmDataDir := os.Getenv("FSM_DATA_DIR"); fsmDataDir != "" {
+		cfg.FSMDataDir = fsmDataDir
+	}
+	if persistentDataDir := os.Getenv("PERSISTENT_DATA_DIR"); persistentDataDir != "" {
+		cfg.PersistentDataDir = persistentDataDir
 	}
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		panic(fmt.Sprintf("failed to parse config %s: %v", path, err))
-	}
-
-	if cfg.NodeAddr == "" {
-		cfg.NodeAddr = "127.0.0.1:4001"
-	}
-	if cfg.ClusterNodesAddr == nil {
-		cfg.ClusterNodesAddr = []string{}
-	}
-	if cfg.FSMDataDir == "" {
-		cfg.FSMDataDir = "./data/fsm"
-	}
-	if cfg.PersistentDataDir == "" {
-		cfg.PersistentDataDir = "./data/persistent"
-	}
-
-	return &cfg
+	return cfg
 }

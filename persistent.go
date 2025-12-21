@@ -186,7 +186,7 @@ func (s *SimplePersistent) GetLogEntries(_ context.Context) []LogEntry {
 	return append([]LogEntry(nil), s.logEntries...)
 }
 
-func (s *SimplePersistent) AppendLogEntries(_ context.Context, l []LogEntry) {
+func (s *SimplePersistent) SetLogEntries(_ context.Context, l []LogEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.logEntries = append([]LogEntry(nil), l...)

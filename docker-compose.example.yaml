@@ -1,0 +1,62 @@
+name: raft_cluster
+services:
+  raft_node_1:
+    image: github.com/pstpn/raft:latest
+    container_name: raft_node_1
+    environment:
+      LOG_LEVEL: "info"
+      NODE_ADDR: "raft_node_1:4001"
+      CLUSTER_NODES_ADDR: "raft_node_2:4002,raft_node_3:4003"
+      FSM_DATA_DIR: "/data/fsm"
+      PERSISTENT_DATA_DIR: "/data/persistent"
+    volumes:
+      - raft_node_1_data:/data
+    ports:
+      - "4001:4001"
+    networks:
+      - raft-network
+    restart: always
+
+  raft_node_2:
+    image: github.com/pstpn/raft:latest
+    container_name: raft_node_2
+    environment:
+      LOG_LEVEL: "info"
+      NODE_ADDR: "raft_node_2:4002"
+      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_3:4003"
+      FSM_DATA_DIR: "/data/fsm"
+      PERSISTENT_DATA_DIR: "/data/persistent"
+    volumes:
+      - raft_node_2_data:/data
+    ports:
+      - "4002:4002"
+    networks:
+      - raft-network
+    restart: always
+
+  raft_node_3:
+    image: github.com/pstpn/raft:latest
+    container_name: raft_node_3
+    environment:
+      LOG_LEVEL: "info"
+      NODE_ADDR: "raft_node_3:4003"
+      CLUSTER_NODES_ADDR: "raft_node_1:4001,raft_node_2:4002"
+      FSM_DATA_DIR: "/data/fsm"
+      PERSISTENT_DATA_DIR: "/data/persistent"
+    volumes:
+      - raft_node_3_data:/data
+    ports:
+      - "4003:4003"
+    networks:
+      - raft-network
+    restart: always
+
+volumes:
+  raft_node_1_data:
+  raft_node_2_data:
+  raft_node_3_data:
+
+networks:
+  raft-network:
+    name: raft-network
+    driver: bridge

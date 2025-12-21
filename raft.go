@@ -186,7 +186,7 @@ func (r *Raft) SetState(_ context.Context, state State) {
 	r.currentState = state
 	r.mu.Unlock()
 
-	r.logger.Debugf("state changed: oldState=%q, currentState=%q", oldState.String(), state.String())
+	r.logger.Infof("state changed: oldState=%q, currentState=%q", oldState.String(), state.String())
 }
 
 func (r *Raft) GetLogEntry(ctx context.Context, index int) (LogEntry, bool) {
@@ -202,17 +202,15 @@ func (r *Raft) GetLastLogEntry(ctx context.Context) (LogEntry, bool) {
 }
 
 func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit int) {
-	if len(l) < 1 {
-		return
-	}
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.persistent.AppendLogEntries(ctx, l)
-	r.appendLogs(ctx, l)
+	if len(l) > 0 {
+		r.appendLogs(ctx, l)
+		r.persistent.SetLogEntries(ctx, r.log)
 
-	r.logger.Debugf("appended %d log entries from leader", len(l))
+		r.logger.Debugf("appended %d log entries from leader", len(l))
+	}
 
 	if leaderCommit > r.commitIndex {
 		lastLogIndex := 0
@@ -245,8 +243,8 @@ func (r *Raft) AppendClientCommand(ctx context.Context, cmd Command) error {
 		AppendedAt: time.Now().UTC().UnixNano(),
 	}
 
-	r.persistent.AppendLogEntries(ctx, []LogEntry{newEntry})
 	r.log = append(r.log, newEntry)
+	r.persistent.SetLogEntries(ctx, r.log)
 	r.mu.Unlock()
 
 	r.logger.Infof("appended client command: %q", cmd.Type.String()+" "+cmd.Key)

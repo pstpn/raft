@@ -25,7 +25,7 @@ func main() {
 		logger.Errorf("failed to create fsm: %v", err)
 		return
 	}
-	logger.Infof("fsm data directory: %s", cfg.FSMDataDir)
+	logger.Infof("fsm data directory: %q", cfg.FSMDataDir)
 
 	persistent, err := NewSimplePersistent(cfg.PersistentDataDir)
 	if err != nil {

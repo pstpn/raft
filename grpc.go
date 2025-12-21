@@ -107,10 +107,6 @@ func (g *GRPCServer) SetValue(ctx context.Context, req *protos.SetValueReq) (*pr
 }
 
 func (g *GRPCServer) GetValue(ctx context.Context, req *protos.GetValueReq) (*protos.GetValueResp, error) {
-	if g.raft.GetCurrentState(ctx) != Leader {
-		return nil, ErrNotLeader
-	}
-
 	value, found := g.raft.GetValue(ctx, req.GetKey())
 	return &protos.GetValueResp{Value: value, Found: found}, nil
 }

@@ -1,0 +1,6 @@
+.dockerignore
+.gitignore
+.golangci.yml
+Dockerfile
+docker-compose.yaml
+README.md
