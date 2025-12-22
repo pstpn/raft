@@ -32,13 +32,13 @@ const (
 	Set CommandType = iota
 	Delete
 
-	minTimeout = 150 * time.Millisecond
-	maxTimeout = 300 * time.Millisecond
-	rpcTimeout = 100 * time.Millisecond
+	minTimeout = 350 * time.Millisecond
+	maxTimeout = 700 * time.Millisecond
+	rpcTimeout = 200 * time.Millisecond
 
-	leaderHeartbeatInterval = 100 * time.Millisecond
-	leaderReplicateInterval = 10 * time.Millisecond
-	applyInterval           = 10 * time.Millisecond
+	leaderHeartbeatInterval = 200 * time.Millisecond
+	leaderReplicateInterval = 20 * time.Millisecond
+	applyInterval           = 20 * time.Millisecond
 )
 
 func (s State) String() string {
@@ -171,9 +171,9 @@ func (r *Raft) GetValue(ctx context.Context, key string) ([]byte, bool) { return
 func (r *Raft) GetCurrentState() State { return State(r.currentState.Load()) }
 
 func (r *Raft) SetState(state State) {
-	oldState := State(r.currentState.Swap(int32(state)))
-
-	r.logger.Infof("state changed: oldState=%q, currentState=%q", oldState.String(), state.String())
+	if oldState := State(r.currentState.Swap(int32(state))); oldState != state {
+		r.logger.Infof("state changed: oldState=%q, currentState=%q", oldState.String(), state.String())
+	}
 }
 
 func (r *Raft) GetLogEntry(index int) (LogEntry, bool) {
@@ -633,6 +633,7 @@ func randomTimeout() time.Duration {
 
 func logEntriesToGRPC(entries []LogEntry) []*protos.Entry {
 	grpcEntries := make([]*protos.Entry, len(entries))
+
 	for i, entry := range entries {
 		grpcEntries[i] = &protos.Entry{
 			Data:       entry.Data,
@@ -641,5 +642,6 @@ func logEntriesToGRPC(entries []LogEntry) []*protos.Entry {
 			AppendedAt: entry.AppendedAt,
 		}
 	}
+
 	return grpcEntries
 }

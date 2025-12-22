@@ -33,3 +33,20 @@ go.work.sum
 
 # Local files
 .DS_Store
+docker-compose.yaml
+*.mov
+
+# Tex
+*.tex
+*.pdf
+*.aux
+*.bbl
+*.log
+*.bcf
+*.blg
+*.xml
+*.gz
+*.toc
+*.zip
+*.out
+*.sqlite
