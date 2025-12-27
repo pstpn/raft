@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	_ "net/http/pprof" //nolint:gosec // debug endpoint
 	"os/signal"
 	"syscall"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 
 	"raft/protos"
 )
@@ -40,17 +44,17 @@ func main() {
 		return
 	}
 
-	grpcHandler := NewGRPCServer(raft)
-	grpcServer := grpc.NewServer()
-	defer grpcServer.Stop()
-	protos.RegisterRaftServer(grpcServer, grpcHandler)
-
 	tcp, err := net.Listen("tcp", cfg.NodeAddr)
 	if err != nil {
 		logger.Errorf("failed to listen on %q: %v", cfg.NodeAddr, err)
 		return
 	}
 	defer tcp.Close()
+
+	pprofServer := http.Server{Addr: cfg.PprofAddr, ReadHeaderTimeout: time.Second}
+	grpcServer := grpc.NewServer()
+	protos.RegisterRaftServer(grpcServer, NewGRPCServer(raft))
+	reflection.Register(grpcServer)
 
 	gr.Go(func() error {
 		if err := raft.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -62,10 +66,20 @@ func main() {
 		return nil
 	})
 	gr.Go(func() error {
-		logger.Infof("starting raft node on %q", cfg.NodeAddr)
-		logger.Infof("cluster nodes %q", cfg.ClusterNodesAddr)
+		logger.Infof("starting pprof server on %q", cfg.PprofAddr)
 
-		if err := grpcServer.Serve(tcp); err != nil && !errors.Is(err, context.Canceled) {
+		if err := pprofServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			logger.Errorf("pprof server stopped with error: %v", err)
+			return err
+		}
+
+		logger.Info("pprof server stopped")
+		return nil
+	})
+	gr.Go(func() error {
+		logger.Infof("starting raft node on %q (cluster nodes: %q)", cfg.NodeAddr, cfg.ClusterNodesAddr)
+
+		if err := grpcServer.Serve(tcp); err != nil {
 			logger.Errorf("raft server stopped with error: %v", err)
 			return err
 		}
@@ -73,10 +87,11 @@ func main() {
 		logger.Info("raft server stopped")
 		return nil
 	})
+
 	gr.Go(func() error {
 		<-ctx.Done()
-		grpcServer.Stop()
-		return nil
+		grpcServer.GracefulStop()
+		return pprofServer.Shutdown(ctx)
 	})
 
 	if err := gr.Wait(); err != nil {

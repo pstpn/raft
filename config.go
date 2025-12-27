@@ -6,11 +6,12 @@ import (
 )
 
 type Config struct {
-	LogLevel          string   `yaml:"logLevel"`
-	FSMDataDir        string   `yaml:"fsmDataDir"`
-	PersistentDataDir string   `yaml:"persistentDataDir"`
-	NodeAddr          string   `yaml:"nodeAddr"`
-	ClusterNodesAddr  []string `yaml:"clusterNodesAddr"`
+	LogLevel          string
+	FSMDataDir        string
+	PersistentDataDir string
+	NodeAddr          string
+	PprofAddr         string
+	ClusterNodesAddr  []string
 }
 
 func ReadConfig() *Config {
@@ -19,6 +20,7 @@ func ReadConfig() *Config {
 		FSMDataDir:        "./data/fsm",
 		PersistentDataDir: "./data/persistent",
 		NodeAddr:          "127.0.0.1:4001",
+		PprofAddr:         "127.0.0.1:6060",
 		ClusterNodesAddr:  []string{},
 	}
 
@@ -27,6 +29,9 @@ func ReadConfig() *Config {
 	}
 	if nodeAddr := os.Getenv("NODE_ADDR"); nodeAddr != "" {
 		cfg.NodeAddr = nodeAddr
+	}
+	if pprofAddr := os.Getenv("PPROF_ADDR"); pprofAddr != "" {
+		cfg.PprofAddr = pprofAddr
 	}
 	if clusterNodesAddr := os.Getenv("CLUSTER_NODES_ADDR"); clusterNodesAddr != "" {
 		cfg.ClusterNodesAddr = strings.Split(clusterNodesAddr, ",")
