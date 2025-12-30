@@ -48,7 +48,7 @@ func (g *GRPCServer) AppendEntries(ctx context.Context, req *protos.AppendEntrie
 		return &protos.AppendEntriesResp{Term: currentTerm, Success: false}, nil
 	}
 
-	g.raft.AppendLogEntries(ctx, g.logEntriesFromGRPC(req.GetEntries()), int(req.GetLeaderCommit()))
+	g.raft.AppendLogEntries(ctx, g.logEntriesFromGRPC(req.GetEntries()), int(req.GetLeaderCommit()), req.LeaderId)
 
 	return &protos.AppendEntriesResp{
 		Term:    currentTerm,

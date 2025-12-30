@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -32,11 +33,11 @@ const (
 	Set CommandType = iota
 	Delete
 
-	minTimeout = 350 * time.Millisecond
-	maxTimeout = 700 * time.Millisecond
-	rpcTimeout = 200 * time.Millisecond
+	minTimeout = 150 * time.Millisecond
+	maxTimeout = 300 * time.Millisecond
+	rpcTimeout = 100 * time.Millisecond
 
-	leaderHeartbeatInterval = 200 * time.Millisecond
+	leaderHeartbeatInterval = 50 * time.Millisecond
 	leaderReplicateInterval = 20 * time.Millisecond
 	applyInterval           = 20 * time.Millisecond
 )
@@ -190,7 +191,7 @@ func (r *Raft) GetLastLogEntry() LogEntry {
 	return l
 }
 
-func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit int) {
+func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit int, leaderId string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -198,7 +199,7 @@ func (r *Raft) AppendLogEntries(ctx context.Context, l []LogEntry, leaderCommit 
 		r.appendLogs(l)
 		r.persistent.SetLogEntries(ctx, r.log)
 
-		r.logger.Debugf("appended %d log entries from leader", len(l))
+		r.logger.Debugf("appended %d log entries from leader (%q)", len(l), leaderId)
 	}
 
 	if int64(leaderCommit) > r.commitIndex.Load() {
@@ -529,8 +530,9 @@ func (r *Raft) callHeartbeatRPC(ctx context.Context, stillFollowed *atomic.Int64
 		go func(nodeIdx int, address string, prev LogEntry) {
 			r.logger.Debugf("sending heartbeat to %q", address)
 
-			if !r.callAppendEntriesRPC(ctx, nodeIdx, nil, prev, address) {
-				r.logger.Warnf("heartbeat to %q rejected", address)
+			if err := r.callAppendEntriesRPC(ctx, nodeIdx, nil, prev, address); err != nil &&
+				!errors.Is(err, ErrAppendEntriesToFollower) {
+				r.logger.Warnf("heartbeat to %q rejected: %v", address, err)
 				return
 			}
 			stillFollowed.Add(1)
@@ -544,7 +546,7 @@ func (r *Raft) callAppendEntriesRPC(
 	entries []LogEntry,
 	prevLogEntry LogEntry,
 	nodeAddr string,
-) bool {
+) error {
 	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
 
@@ -562,8 +564,10 @@ func (r *Raft) callAppendEntriesRPC(
 		PrevLogTerm:  int64(prevLogEntry.Term),
 		LeaderCommit: commitIndex,
 	})
-	if err != nil || resp == nil {
-		return false
+	if err != nil {
+		r.logger.Debugf("received appendEntries response with not nil err: %v", err)
+
+		return err
 	}
 	if resp.GetTerm() > int64(currentTerm) {
 		r.logger.Debugf("received higher term in appendEntries response: oldTerm=%d, currentTerm=%d",
@@ -574,7 +578,7 @@ func (r *Raft) callAppendEntriesRPC(
 		r.persistent.SetCurrentTerm(ctx, int(resp.GetTerm()))
 		r.SetState(Follower)
 
-		return false
+		return ErrLowerTerm
 	}
 	if !resp.GetSuccess() {
 		r.logger.Debugf("can't appendEntries to %q, decrementing next index and trying again", nodeAddr)
@@ -585,7 +589,7 @@ func (r *Raft) callAppendEntriesRPC(
 		}
 		r.mu.Unlock()
 
-		return resp.GetSuccess()
+		return ErrAppendEntriesToFollower
 	}
 
 	lastSentIndex := prevLogEntry.Index
@@ -598,7 +602,7 @@ func (r *Raft) callAppendEntriesRPC(
 	r.nodesMatchIndex[nodeIdx] = lastSentIndex
 	r.mu.Unlock()
 
-	return resp.GetSuccess()
+	return nil
 }
 
 func (r *Raft) initLeadersIndexes() {
