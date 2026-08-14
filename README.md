@@ -43,13 +43,18 @@ and votes.
 
 ```mermaid
 stateDiagram-v2
+    direction LR
     [*] --> Follower
-    Follower --> Candidate: election timeout, no heartbeat heard
-    Candidate --> Leader: votes from a majority
-    Candidate --> Follower: another leader appears
-    Candidate --> Candidate: split vote, new term
-    Leader --> Follower: a higher term is seen
+    Follower --> Candidate: timeout
+    Candidate --> Leader: majority
+    Candidate --> Follower: leader found
+    Candidate --> Candidate: split vote
+    Leader --> Follower: higher term
 ```
+
+A follower becomes a candidate when it hears no heartbeat before its election timeout, a
+candidate becomes leader on votes from a majority, and any node that sees a higher term steps
+back to follower. A split vote simply opens a new term and the election repeats.
 
 Timings follow the paper. The election timeout is drawn at random between 150 and 300 ms so
 that nodes rarely become candidates at the same moment, the leader sends heartbeats every
